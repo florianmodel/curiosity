@@ -18,6 +18,7 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
   },
   goalSources: {
     bootstrapExploration: true,
+    selfDirectedExploration: true,
     unresolvedUserAsks: true,
     staleOpenQuestions: true,
     failedToolAttempts: true,
@@ -92,6 +93,10 @@ export const curiosityPluginConfigSchemaJson = {
         bootstrapExploration: {
           type: "boolean",
           description: "Allow curiosity to create a first bounded orientation goal when it has no prior observations.",
+        },
+        selfDirectedExploration: {
+          type: "boolean",
+          description: "Allow curiosity to invent playful web, creative, or tiny-build goals without a user-supplied topic.",
         },
       },
     },
@@ -401,6 +406,10 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
       bootstrapExploration: booleanOrDefault(
         goalSources.bootstrapExploration,
         DEFAULT_CURIOSITY_CONFIG.goalSources.bootstrapExploration,
+      ),
+      selfDirectedExploration: booleanOrDefault(
+        goalSources.selfDirectedExploration,
+        DEFAULT_CURIOSITY_CONFIG.goalSources.selfDirectedExploration,
       ),
       unresolvedUserAsks: booleanOrDefault(
         goalSources.unresolvedUserAsks,

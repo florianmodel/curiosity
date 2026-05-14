@@ -26,6 +26,7 @@ afterEach(async () => {
 
 const NO_GOAL_SOURCES: GoalSourcesConfig = {
   bootstrapExploration: false,
+  selfDirectedExploration: false,
   unresolvedUserAsks: false,
   staleOpenQuestions: false,
   failedToolAttempts: false,
@@ -375,7 +376,7 @@ describe("CuriosityManager", () => {
       expect(String(url)).toBe("https://telegram.example/botbot-token/sendMessage");
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       expect(body.chat_id).toBe("12345");
-      expect(String(body.text)).toContain("OpenClaw curiosity started");
+      expect(String(body.text)).toContain("Curiosity is starting a run");
       expect(String(body.text)).toContain("flaky deploy pipeline");
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
