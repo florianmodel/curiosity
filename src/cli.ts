@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { parseWindowDuration } from "./config.js";
 import type { CuriosityManager } from "./manager.js";
+import type { GoalRecord, GoalSelectionDecision } from "./types.js";
 
 type CliCommand = {
   description: (text: string) => CliCommand;
@@ -25,6 +28,115 @@ function parseBooleanOption(value: string | undefined, fallback: boolean): boole
     return false;
   }
   return fallback;
+}
+
+function clampOutput(text: string, maxChars = 4000): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `${text.slice(0, 1000)}\n...[truncated]...\n${text.slice(-maxChars + 1018)}`;
+}
+
+function renderGoalRunMessage(goal: GoalRecord): string {
+  return [
+    "Run this autonomous curiosity goal as one bounded workspace-local investigation.",
+    "",
+    `Goal ID: ${goal.goalId}`,
+    `Title: ${goal.title}`,
+    `Source: ${goal.source}`,
+    `Target surface: ${goal.targetSurface}`,
+    `Proposed action: ${goal.proposedAction}`,
+    "",
+    "Evidence:",
+    ...goal.evidence.map((item) => `- ${item}`),
+    "",
+    "Rules:",
+    "- Do exactly one bounded orientation pass.",
+    "- Stay within local OpenClaw/workspace state unless a tool approval explicitly allows more.",
+    "- Do not take external action from this run.",
+    "- End with a concise summary of what you inspected, what you learned, and the next clue.",
+  ].join("\n");
+}
+
+function runOpenClawAgent(params: {
+  agentId: string;
+  runId: string;
+  message: string;
+  timeoutSeconds: number;
+  workspaceDir: string;
+}): Promise<{
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const cliEntrypoint = process.argv[1];
+  const useNodeEntrypoint = Boolean(cliEntrypoint && existsSync(cliEntrypoint));
+  const command = useNodeEntrypoint ? process.execPath : "openclaw";
+  const args = useNodeEntrypoint
+    ? [
+        cliEntrypoint,
+        "agent",
+        "--agent",
+        params.agentId,
+        "--message",
+        params.message,
+        "--timeout",
+        String(params.timeoutSeconds),
+        "--json",
+      ]
+    : [
+        "agent",
+        "--agent",
+        params.agentId,
+        "--message",
+        params.message,
+        "--timeout",
+        String(params.timeoutSeconds),
+        "--json",
+      ];
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: params.workspaceDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (exitCode) => {
+      resolve({ exitCode, stdout, stderr });
+    });
+  });
+}
+
+async function selectGoal(params: {
+  manager: CuriosityManager;
+  agentId: string;
+  runId: string;
+  notify: boolean;
+}): Promise<GoalSelectionDecision & { notification?: unknown }> {
+  const decision = await params.manager.selectGoalForRun({
+    agentId: params.agentId,
+    runId: params.runId,
+    trigger: "curiosity-cli",
+  });
+  const notification = decision.selected && params.notify
+    ? await params.manager.notifyAutonomousStart({
+        runId: params.runId,
+        agentId: params.agentId,
+        goal: decision.goal,
+      })
+    : undefined;
+  return { ...decision, notification };
 }
 
 export async function registerCuriosityCli(params: {
@@ -82,27 +194,102 @@ export async function registerCuriosityCli(params: {
       const runId = options.runId?.trim() || `curiosity-cli-${Date.now()}`;
       const agentId = options.agent?.trim() || "default";
       const selectedManager = await manager();
-      const decision = await selectedManager.selectGoalForRun({
+      const decision = await selectGoal({
+        manager: selectedManager,
         agentId,
         runId,
-        trigger: "curiosity-cli",
+        notify: parseBooleanOption(options.notify, true),
       });
-      const notify = parseBooleanOption(options.notify, true);
-      const notification = decision.selected && notify
-        ? await selectedManager.notifyAutonomousStart({
-            runId,
-            agentId,
-            goal: decision.goal,
-          })
-        : undefined;
 
       printJson({
         ...decision,
         runId,
         agentId,
-        notification,
       });
     });
+
+  curiosity
+    .command("run")
+    .description("Execute the next selected curiosity goal with an OpenClaw agent turn")
+    .option("--agent <id>", "Agent id for the autonomous run", "default")
+    .option("--run-id <id>", "Run id to use for audit records")
+    .option("--timeout <seconds>", "Agent command timeout in seconds", "900")
+    .option("--select <boolean>", "Select a new goal when none is already selected", "true")
+    .option("--notify <boolean>", "Send configured start notification for newly selected goals", "true")
+    .action(
+      async (options: {
+        agent?: string;
+        runId?: string;
+        timeout?: string;
+        select?: string;
+        notify?: string;
+      }) => {
+        const runId = options.runId?.trim() || `curiosity-run-${Date.now()}`;
+        const agentId = options.agent?.trim() || "default";
+        const timeoutSeconds = Number.parseInt(options.timeout ?? "900", 10) || 900;
+        const selectedManager = await manager();
+        const existing = (await selectedManager.listGoalsByStatus(["selected", "in_progress"], 1))
+          .find((goal) => goal.agentId === agentId);
+        const selection = existing
+          ? { selected: true as const, goal: existing, reusedSelectedGoal: true }
+          : parseBooleanOption(options.select, true)
+            ? await selectGoal({
+                manager: selectedManager,
+                agentId,
+                runId,
+                notify: parseBooleanOption(options.notify, true),
+              })
+            : { selected: false as const, reason: "no_selected_goal" };
+
+        if (!selection.selected) {
+          printJson({ selected: false, runId, agentId, reason: selection.reason });
+          return;
+        }
+
+        await selectedManager.markGoalInProgress({ goalId: selection.goal.goalId, runId });
+        const startedAt = Date.now();
+        const result = await runOpenClawAgent({
+          agentId,
+          runId,
+          message: renderGoalRunMessage(selection.goal),
+          timeoutSeconds,
+          workspaceDir,
+        });
+        const success = result.exitCode === 0;
+        await selectedManager.finalizeAutonomousRun({
+          runId,
+          goalId: selection.goal.goalId,
+          agentId,
+          trigger: "curiosity-cli-run",
+          success,
+          durationMs: Date.now() - startedAt,
+          error: success ? undefined : clampOutput(result.stderr || result.stdout || "agent failed"),
+        });
+        await selectedManager.recordObservation({
+          kind: success ? "assistant_output" : "tool_failure",
+          runId,
+          agentId,
+          success,
+          content: clampOutput(result.stdout || result.stderr),
+          metadata: {
+            command: "openclaw agent",
+            exitCode: result.exitCode,
+          },
+        });
+
+        printJson({
+          selected: true,
+          executed: true,
+          success,
+          runId,
+          agentId,
+          goalId: selection.goal.goalId,
+          exitCode: result.exitCode,
+          stdout: clampOutput(result.stdout),
+          stderr: clampOutput(result.stderr),
+        });
+      },
+    );
 
   curiosity
     .command("pause")
