@@ -1,0 +1,245 @@
+{
+  "id": "curiosity",
+  "name": "Curiosity",
+  "description": "Autonomous goal discovery and curiosity scoring overlay for OpenClaw.",
+  "contracts": {
+    "tools": [
+      "curiosity_inspect"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "budgets": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "autonomousRunsPerDay": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "autonomousTokensPerDay": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "externalActionsPerDay": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "externalActionsPerHour": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "goalSources": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "unresolvedUserAsks": {
+            "type": "boolean"
+          },
+          "staleOpenQuestions": {
+            "type": "boolean"
+          },
+          "failedToolAttempts": {
+            "type": "boolean"
+          },
+          "newlyDiscoveredEntities": {
+            "type": "boolean"
+          },
+          "lowCoverageSurfaces": {
+            "type": "boolean"
+          },
+          "skillOpportunities": {
+            "type": "boolean"
+          },
+          "externalFollowUps": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ensembleWeights": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "novelty": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "uncertainty": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "curriculum": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "thresholds": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "staleGoalHours": {
+            "type": "number",
+            "minimum": 1
+          },
+          "recentObservationWindowHours": {
+            "type": "number",
+            "minimum": 1
+          }
+        }
+      },
+      "shadowModels": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "boredom": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "idleStartMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minutes of no meaningful activity before boredom starts growing."
+          },
+          "saturationMinutes": {
+            "type": "number",
+            "minimum": 0.1,
+            "description": "Minutes of no meaningful activity before boredom reaches full strength."
+          },
+          "maxScoreBonus": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Maximum active score bonus contributed by full boredom."
+          }
+        }
+      },
+      "logging": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "retentionDays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "verbose": {
+            "type": "boolean"
+          }
+        }
+      },
+      "actionPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allowExternalActions": {
+            "type": "boolean"
+          },
+          "externalTargetPolicy": {
+            "type": "string",
+            "enum": [
+              "any-configured-surface",
+              "explicit-allowlist",
+              "research-web-only"
+            ]
+          },
+          "disagreementFallback": {
+            "type": "string",
+            "enum": [
+              "explore-anyway",
+              "defer",
+              "ask"
+            ]
+          },
+          "activeHours": {
+            "type": "string",
+            "enum": [
+              "always-on",
+              "configured-window"
+            ]
+          },
+          "activeWindow": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "start",
+              "end"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "description": "Start time in HH:MM 24-hour format."
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "description": "End time in HH:MM 24-hour format."
+              },
+              "timeZone": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional IANA time zone, for example Europe/Berlin."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "budgets": {
+      "label": "Autonomy Budgets",
+      "help": "Rolling run, token, and external-action caps for autonomous behavior."
+    },
+    "goalSources": {
+      "label": "Goal Sources",
+      "help": "Candidate-goal families that feed the curiosity scorer."
+    },
+    "ensembleWeights": {
+      "label": "Ensemble Weights",
+      "help": "How much the active policy values novelty, uncertainty, progress, and curriculum."
+    },
+    "thresholds": {
+      "label": "Thresholds",
+      "help": "Decision thresholds and time windows for candidate selection."
+    },
+    "shadowModels": {
+      "label": "Shadow Models",
+      "help": "Additional scorer names to log for side-by-side comparisons."
+    },
+    "boredom": {
+      "label": "Boredom Drive",
+      "help": "Idle-time inverse reward that grows until the agent self-initiates a bounded action."
+    },
+    "logging": {
+      "label": "Logging",
+      "help": "Audit-log verbosity and retention for curiosity decisions."
+    },
+    "actionPolicy": {
+      "label": "Action Policy",
+      "help": "How far autonomous actions may go once a goal is selected."
+    }
+  }
+}

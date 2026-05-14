@@ -1,0 +1,216 @@
+export type GoalSource =
+  | "unresolved_user_ask"
+  | "stale_open_question"
+  | "failed_tool_attempt"
+  | "new_entity"
+  | "low_coverage_surface"
+  | "skill_opportunity"
+  | "external_follow_up"
+  | "idle_boredom";
+
+export type GoalStatus =
+  | "queued"
+  | "selected"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "paused";
+
+export type ObservationKind =
+  | "message_received"
+  | "assistant_output"
+  | "tool_success"
+  | "tool_failure"
+  | "message_sending"
+  | "message_sent";
+
+export type ExternalTargetPolicy =
+  | "any-configured-surface"
+  | "explicit-allowlist"
+  | "research-web-only";
+
+export type DisagreementFallback = "explore-anyway" | "defer" | "ask";
+
+export type ActiveWindowConfig = {
+  start: string;
+  end: string;
+  timeZone?: string;
+};
+
+export type GoalSourcesConfig = {
+  unresolvedUserAsks: boolean;
+  staleOpenQuestions: boolean;
+  failedToolAttempts: boolean;
+  newlyDiscoveredEntities: boolean;
+  lowCoverageSurfaces: boolean;
+  skillOpportunities: boolean;
+  externalFollowUps: boolean;
+};
+
+export type CuriosityConfig = {
+  budgets: {
+    autonomousRunsPerDay: number;
+    autonomousTokensPerDay: number;
+    externalActionsPerDay: number;
+    externalActionsPerHour: number;
+  };
+  goalSources: GoalSourcesConfig;
+  ensembleWeights: {
+    novelty: number;
+    uncertainty: number;
+    progress: number;
+    curriculum: number;
+  };
+  thresholds: {
+    act: number;
+    staleGoalHours: number;
+    recentObservationWindowHours: number;
+  };
+  boredom: {
+    enabled: boolean;
+    idleStartMinutes: number;
+    saturationMinutes: number;
+    maxScoreBonus: number;
+  };
+  shadowModels: string[];
+  logging: {
+    retentionDays: number;
+    verbose: boolean;
+  };
+  actionPolicy: {
+    allowExternalActions: boolean;
+    externalTargetPolicy: ExternalTargetPolicy;
+    disagreementFallback: DisagreementFallback;
+    activeHours: "always-on" | "configured-window";
+    activeWindow?: ActiveWindowConfig;
+  };
+};
+
+export type ObservationRecord = {
+  id: number;
+  kind: ObservationKind;
+  createdAt: number;
+  runId?: string;
+  agentId?: string;
+  sessionKey?: string;
+  channelId?: string;
+  toolName?: string;
+  success?: boolean;
+  content: string;
+  metadata: Record<string, unknown>;
+};
+
+export type CandidateGoal = {
+  source: GoalSource;
+  title: string;
+  evidence: string[];
+  proposedAction: string;
+  targetSurface: string;
+  estimatedCost: number;
+  risk: number;
+  keywords: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type ScoreCard = {
+  rnd_novelty: number;
+  episodic_reachability: number;
+  plan2explore_uncertainty: number;
+  impact_progress: number;
+  llm_curriculum_reflection: number;
+  boredom_drive: number;
+  novelty_composite: number;
+  cost_penalty: number;
+  risk_penalty: number;
+  active_ensemble: number;
+  shadow_rankings: Record<string, number>;
+};
+
+export type GoalRecord = {
+  goalId: string;
+  fingerprint: string;
+  agentId: string;
+  createdAt: number;
+  source: GoalSource;
+  title: string;
+  evidence: string[];
+  proposedAction: string;
+  targetSurface: string;
+  scoresByModel: ScoreCard;
+  selectedByPolicy: string;
+  estimatedCost: number;
+  risk: number;
+  status: GoalStatus;
+  attempts: number;
+  lastRunId?: string;
+  outcome?: Record<string, unknown>;
+  updatedAt: number;
+};
+
+export type BudgetUsage = {
+  autonomousRuns24h: number;
+  autonomousTokens24h: number;
+  externalActions24h: number;
+  externalActions1h: number;
+};
+
+export type BoredomState = {
+  enabled: boolean;
+  idleSince: number;
+  idleMs: number;
+  idleMinutes: number;
+  level: number;
+  scoreBonus: number;
+  startsAfterMs: number;
+  saturatesAfterMs: number;
+};
+
+export type GoalSelectionDecision =
+  | {
+      selected: true;
+      goal: GoalRecord;
+      budgetUsage: BudgetUsage;
+      candidateCount: number;
+    }
+  | {
+      selected: false;
+      reason:
+        | "paused"
+        | "budget_exhausted"
+        | "no_candidates"
+        | "below_threshold"
+        | "outside_active_hours";
+      budgetUsage: BudgetUsage;
+      candidateCount: number;
+    };
+
+export type QueueSnapshot = {
+  paused: boolean;
+  budgetUsage: BudgetUsage;
+  boredom: BoredomState;
+  goals: GoalRecord[];
+};
+
+export type CompareSnapshot = {
+  windowMs: number;
+  candidateCount: number;
+  selectedCount: number;
+  completedCount: number;
+  failedCount: number;
+  selectionRate: number;
+  realizedNovelty: number;
+  uncertaintyReduced: number;
+  progressRealized: number;
+  externalActionSuccess: number;
+  reversalsFailures: number;
+  humanInterventionRate: number;
+  totalTokens: number;
+  averageScores: Partial<Record<keyof ScoreCard, number>>;
+};
+
+export type ActiveAutonomousRun = {
+  runId: string;
+  goalId: string;
+  agentId: string;
+  selectedAt: number;
+};
