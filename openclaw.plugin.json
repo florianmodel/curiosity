@@ -37,6 +37,10 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "bootstrapExploration": {
+            "type": "boolean",
+            "description": "Allow curiosity to create a first bounded orientation goal when it has no prior observations."
+          },
           "unresolvedUserAsks": {
             "type": "boolean"
           },
