@@ -775,18 +775,26 @@ export class CuriosityManager {
     return this.listGoalsByStatus(["completed", "failed"], limit);
   }
 
-  async markGoalInProgress(params: { goalId: string; runId: string; now?: number }) {
+  async markGoalInProgress(params: { goalId: string; runId: string; agentId?: string; now?: number }) {
     const db = await this.ensureDb();
     const now = params.now ?? Date.now();
-    db.prepare(
-      `UPDATE goals SET status = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`,
-    ).run("in_progress", params.runId, now, params.goalId);
+    if (params.agentId) {
+      db.prepare(
+        `UPDATE goals SET status = ?, agent_id = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`,
+      ).run("in_progress", params.agentId, params.runId, now, params.goalId);
+    } else {
+      db.prepare(
+        `UPDATE goals SET status = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`,
+      ).run("in_progress", params.runId, now, params.goalId);
+    }
     await this.appendAuditEvent({
       ts: now,
       eventType: "goal_in_progress",
       goalId: params.goalId,
       runId: params.runId,
-      payload: {},
+      payload: {
+        agentId: params.agentId,
+      },
     });
   }
 

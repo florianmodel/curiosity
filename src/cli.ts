@@ -279,10 +279,16 @@ export async function registerCuriosityCli(params: {
         const agentId = options.agent?.trim() || defaultAgentId;
         const timeoutSeconds = Number.parseInt(options.timeout ?? "900", 10) || 900;
         const selectedManager = await manager();
-        const existing = (await selectedManager.listGoalsByStatus(["selected", "in_progress"], 1))
-          .find((goal) => goal.agentId === agentId);
+        const selectedGoals = await selectedManager.listGoalsByStatus(["selected", "in_progress"], 10);
+        const existing =
+          selectedGoals.find((goal) => goal.agentId === agentId) ?? selectedGoals[0];
         const selection = existing
-          ? { selected: true as const, goal: existing, reusedSelectedGoal: true }
+          ? {
+              selected: true as const,
+              goal: existing,
+              reusedSelectedGoal: true,
+              adoptedFromAgentId: existing.agentId === agentId ? undefined : existing.agentId,
+            }
           : parseBooleanOption(options.select, true)
             ? await selectGoal({
                 manager: selectedManager,
@@ -297,7 +303,11 @@ export async function registerCuriosityCli(params: {
           return;
         }
 
-        await selectedManager.markGoalInProgress({ goalId: selection.goal.goalId, runId });
+        await selectedManager.markGoalInProgress({
+          goalId: selection.goal.goalId,
+          runId,
+          agentId,
+        });
         const startedAt = Date.now();
         const result = await runOpenClawAgent({
           agentId,
@@ -335,6 +345,9 @@ export async function registerCuriosityCli(params: {
           runId,
           agentId,
           goalId: selection.goal.goalId,
+          adoptedFromAgentId: "adoptedFromAgentId" in selection
+            ? selection.adoptedFromAgentId
+            : undefined,
           exitCode: result.exitCode,
           stdout: clampOutput(result.stdout),
           stderr: clampOutput(result.stderr),

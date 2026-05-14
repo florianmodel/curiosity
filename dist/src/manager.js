@@ -586,13 +586,20 @@ export class CuriosityManager {
     async markGoalInProgress(params) {
         const db = await this.ensureDb();
         const now = params.now ?? Date.now();
-        db.prepare(`UPDATE goals SET status = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`).run("in_progress", params.runId, now, params.goalId);
+        if (params.agentId) {
+            db.prepare(`UPDATE goals SET status = ?, agent_id = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`).run("in_progress", params.agentId, params.runId, now, params.goalId);
+        }
+        else {
+            db.prepare(`UPDATE goals SET status = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`).run("in_progress", params.runId, now, params.goalId);
+        }
         await this.appendAuditEvent({
             ts: now,
             eventType: "goal_in_progress",
             goalId: params.goalId,
             runId: params.runId,
-            payload: {},
+            payload: {
+                agentId: params.agentId,
+            },
         });
     }
     async listRecentObservations(limit = 100) {
