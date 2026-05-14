@@ -41,6 +41,10 @@
             "type": "boolean",
             "description": "Allow curiosity to create a first bounded orientation goal when it has no prior observations."
           },
+          "selfDirectedExploration": {
+            "type": "boolean",
+            "description": "Allow curiosity to invent playful web, creative, or tiny-build goals without a user-supplied topic."
+          },
           "unresolvedUserAsks": {
             "type": "boolean"
           },

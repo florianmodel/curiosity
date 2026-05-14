@@ -1,5 +1,6 @@
 export type GoalSource =
   | "bootstrap_exploration"
+  | "self_directed_exploration"
   | "unresolved_user_ask"
   | "stale_open_question"
   | "failed_tool_attempt"
@@ -53,6 +54,7 @@ export type ActiveWindowConfig = {
 
 export type GoalSourcesConfig = {
   bootstrapExploration: boolean;
+  selfDirectedExploration: boolean;
   unresolvedUserAsks: boolean;
   staleOpenQuestions: boolean;
   failedToolAttempts: boolean;

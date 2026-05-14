@@ -22,8 +22,14 @@ function clampOutput(text, maxChars = 4000) {
     return `${text.slice(0, 1000)}\n...[truncated]...\n${text.slice(-maxChars + 1018)}`;
 }
 function renderGoalRunMessage(goal) {
+    const allowsWeb = goal.targetSurface === "web" ||
+        goal.source === "self_directed_exploration" ||
+        goal.source === "bootstrap_exploration";
+    const allowsMaking = goal.targetSurface === "workspace" ||
+        goal.source === "self_directed_exploration" ||
+        goal.source === "bootstrap_exploration";
     return [
-        "Run this autonomous curiosity goal as one bounded workspace-local investigation.",
+        "Run this autonomous curiosity goal as one bounded self-directed investigation.",
         "",
         `Goal ID: ${goal.goalId}`,
         `Title: ${goal.title}`,
@@ -34,11 +40,22 @@ function renderGoalRunMessage(goal) {
         "Evidence:",
         ...goal.evidence.map((item) => `- ${item}`),
         "",
-        "Rules:",
-        "- Do exactly one bounded orientation pass.",
-        "- Stay within local OpenClaw/workspace state unless a tool approval explicitly allows more.",
-        "- Do not take external action from this run.",
-        "- End with a concise summary of what you inspected, what you learned, and the next clue.",
+        "Autonomy brief:",
+        "- Be genuinely curious. Do something more interesting than checking status when the goal calls for it.",
+        "- Do one bounded pass and stop. Prefer a finished small thing over a sprawling plan.",
+        ...(allowsWeb
+            ? [
+                "- You may browse the public web for research. Use a few reputable sources and include links in the summary.",
+                "- Do not log in, buy anything, message people, publish, or mutate external systems.",
+            ]
+            : []),
+        ...(allowsMaking
+            ? [
+                "- You may create or edit a small local artifact if useful: a note, poem, prototype, script, or demo.",
+                "- Keep local changes reversible and explain exactly what file you touched.",
+            ]
+            : []),
+        "- End with what you did, what surprised you, where the artifact or sources are, and the next clue.",
     ].join("\n");
 }
 async function runOpenClawAgent(params) {

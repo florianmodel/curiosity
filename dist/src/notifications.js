@@ -10,6 +10,11 @@ function clampLine(text, maxChars) {
 }
 export function renderAutonomousStartNotice(params) {
     const score = params.goal.scoresByModel.active_ensemble.toFixed(3);
+    const scope = params.goal.targetSurface === "web"
+        ? "I may browse the public web, collect a few sources, and stop before posting or contacting anyone."
+        : params.goal.source === "self_directed_exploration" || params.goal.source === "bootstrap_exploration"
+            ? "I may inspect local files and create one small, reversible artifact if that is the useful move."
+            : "I will keep this bounded and stop after one pass.";
     const evidence = params.includeEvidence
         ? params.goal.evidence
             .slice(0, 2)
@@ -17,14 +22,15 @@ export function renderAutonomousStartNotice(params) {
             .join("")
         : "";
     return [
-        "<b>OpenClaw curiosity started</b>",
-        `Agent: <code>${escapeHtml(params.agentId)}</code>`,
-        `Run: <code>${escapeHtml(params.runId)}</code>`,
-        `Goal: ${escapeHtml(clampLine(params.goal.title, 260))}`,
-        `Surface: <code>${escapeHtml(params.goal.targetSurface)}</code>`,
-        `Score: <code>${score}</code>`,
-        `Workspace: <code>${escapeHtml(params.workspaceDir)}</code>`,
-        ...(evidence ? [`Evidence:${evidence}`] : []),
+        "<b>Curiosity is starting a run</b>",
+        "",
+        `<b>What I am trying</b>: ${escapeHtml(clampLine(params.goal.title, 220))}`,
+        `<b>Plan</b>: ${escapeHtml(clampLine(params.goal.proposedAction, 420))}`,
+        `<b>Scope</b>: ${escapeHtml(scope)}`,
+        ...(evidence ? [`<b>Why now</b>:${evidence}`] : []),
+        "",
+        `<b>Details</b>: agent <code>${escapeHtml(params.agentId)}</code>, score <code>${score}</code>, surface <code>${escapeHtml(params.goal.targetSurface)}</code>`,
+        `<b>Run</b>: <code>${escapeHtml(params.runId)}</code>`,
     ].join("\n");
 }
 function normalizeTelegramApiBaseUrl(raw) {

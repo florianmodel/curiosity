@@ -78,6 +78,49 @@ const SAFE_LOCAL_TOOLS = new Set([
   "curiosity_inspect",
 ]);
 
+const SELF_DIRECTED_SEEDS = [
+  {
+    title: "Explore a strange useful idea on the web",
+    targetSurface: "web",
+    evidence: "No user supplied a topic; curiosity may pick a fresh public idea and follow it for one short pass.",
+    proposedAction:
+      "Choose one non-obvious public topic from recent technology, science, art, tools, or culture; browse the web for 2-4 reputable sources; write a short note with links, what surprised you, and one follow-up question.",
+    estimatedCost: 720,
+    risk: 0.14,
+    keywords: "web research science technology art culture surprising rabbit-hole sources",
+  },
+  {
+    title: "Make a small creative artifact",
+    targetSurface: "workspace",
+    evidence: "The system is idle enough for a tiny act of autonomous making instead of another status check.",
+    proposedAction:
+      "Create one small original artifact in the workspace, such as a poem, micro-essay, prompt, sketch spec, or tiny markdown exhibit; keep it tasteful, label it as autonomous curiosity output, and record why you made it.",
+    estimatedCost: 520,
+    risk: 0.06,
+    keywords: "creative poem essay artifact autonomous making workspace",
+  },
+  {
+    title: "Build a tiny local prototype",
+    targetSurface: "workspace",
+    evidence: "Curiosity can learn by making a reversible, low-risk thing instead of only describing observations.",
+    proposedAction:
+      "Look for a safe place in the workspace for a tiny prototype or script; build one self-contained toy, helper, demo, or note-driven experiment; run a quick check if possible; summarize how to open or inspect it.",
+    estimatedCost: 900,
+    risk: 0.12,
+    keywords: "build prototype script demo experiment local workspace",
+  },
+  {
+    title: "Follow a random local clue",
+    targetSurface: "workspace",
+    evidence: "The next clue should come from the local environment rather than from a user prompt.",
+    proposedAction:
+      "Inspect a small slice of local OpenClaw state or workspace files, choose the most surprising clue, then either improve a note, create a tiny artifact, or propose a concrete next run; stop after one bounded pass.",
+    estimatedCost: 420,
+    risk: 0.05,
+    keywords: "local clue openclaw workspace surprising artifact note",
+  },
+] as const;
+
 function clampContent(text: string, maxChars = 1600): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   if (normalized.length <= maxChars) {
@@ -866,10 +909,10 @@ export class CuriosityManager {
         title: "Bootstrap curiosity from an empty state",
         evidence: [
           "No recent observations, open goals, or prior curiosity outcomes exist for this workspace.",
-          "The agent should choose its first clue from the local OpenClaw/workspace state, not from a user-supplied topic.",
+          "The agent should choose its first clue itself: local state, public web, creative making, or a tiny build are all valid.",
         ],
         proposedAction:
-          "Perform one bounded orientation pass over local workspace and OpenClaw state, identify a surprising or underexplored next clue, record what was learned, and stop before taking external action.",
+          "Perform one bounded orientation pass, then do one genuinely interesting thing: browse a public topic, create a small artifact, or build a tiny local prototype. Record what was made or learned and the next clue.",
         targetSurface: "workspace",
         estimatedCost: 220,
         risk: 0.04,
@@ -880,6 +923,70 @@ export class CuriosityManager {
         },
       },
     ];
+  }
+
+  private buildSelfDirectedCandidates(params: {
+    boredom: BoredomState;
+    observations: ObservationRecord[];
+    openGoals: GoalRecord[];
+    recentCompleted: GoalRecord[];
+  }): CandidateGoal[] {
+    if (!this.config.goalSources.selfDirectedExploration) {
+      return [];
+    }
+    const hasActiveSelfDirectedGoal = params.openGoals.some(
+      (goal) => goal.source === "self_directed_exploration",
+    );
+    if (hasActiveSelfDirectedGoal) {
+      return [];
+    }
+    if (
+      params.observations.length === 0 &&
+      params.openGoals.length === 0 &&
+      params.recentCompleted.length === 0
+    ) {
+      return [];
+    }
+    const hasRecentHumanAsk = params.observations.some(
+      (observation) => observation.kind === "message_received",
+    );
+    const finishedSelfDirectedRecently = params.recentCompleted.some(
+      (goal) => goal.source === "self_directed_exploration",
+    );
+    const idleEnough = !params.boredom.enabled || params.boredom.level >= 0.15;
+    const emptyEnough =
+      params.observations.length === 0 ||
+      params.observations.every((observation) =>
+        ["assistant_output", "tool_failure", "tool_success"].includes(observation.kind),
+      );
+    if (hasRecentHumanAsk && !idleEnough) {
+      return [];
+    }
+    if (!idleEnough && !emptyEnough && finishedSelfDirectedRecently) {
+      return [];
+    }
+
+    const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+    const rotated = SELF_DIRECTED_SEEDS.map(
+      (_, index) => SELF_DIRECTED_SEEDS[(dayIndex + index) % SELF_DIRECTED_SEEDS.length],
+    );
+    return rotated.slice(0, 3).map((seed) => ({
+      source: "self_directed_exploration",
+      title: seed.title,
+      evidence: [
+        seed.evidence,
+        "This should be interesting on its own: browse, make, or build something small instead of only checking status.",
+      ],
+      proposedAction: seed.proposedAction,
+      targetSurface: seed.targetSurface,
+      estimatedCost: seed.estimatedCost,
+      risk: seed.risk,
+      keywords: extractKeywords(seed.keywords),
+      metadata: {
+        selfDirected: true,
+        boredomLevel: params.boredom.level,
+      },
+    }));
   }
 
   private async buildCandidates(params: {
@@ -897,6 +1004,15 @@ export class CuriosityManager {
 
     candidates.push(
       ...this.buildBootstrapCandidates({
+        observations: params.observations,
+        openGoals: params.openGoals,
+        recentCompleted: params.recentCompleted,
+      }),
+    );
+
+    candidates.push(
+      ...this.buildSelfDirectedCandidates({
+        boredom: params.boredom,
         observations: params.observations,
         openGoals: params.openGoals,
         recentCompleted: params.recentCompleted,

@@ -140,6 +140,9 @@ function computeUncertainty(candidate: CandidateGoal): number {
   if (candidate.source === "bootstrap_exploration") {
     score += 0.35;
   }
+  if (candidate.source === "self_directed_exploration") {
+    score += 0.45;
+  }
   if (candidate.source === "failed_tool_attempt") {
     score += 0.4;
   }
@@ -166,6 +169,7 @@ function computeImpact(candidate: CandidateGoal, recentToolNames: string[]): num
       : 0;
   const sourceWeights: Record<CandidateGoal["source"], number> = {
     bootstrap_exploration: 0.68,
+    self_directed_exploration: 0.82,
     unresolved_user_ask: 0.9,
     stale_open_question: 0.72,
     failed_tool_attempt: 0.84,
@@ -184,6 +188,9 @@ function computeCurriculum(candidate: CandidateGoal): number {
     score += 0.55;
   }
   if (candidate.source === "bootstrap_exploration") {
+    score += 0.35;
+  }
+  if (candidate.source === "self_directed_exploration") {
     score += 0.35;
   }
   if (candidate.source === "failed_tool_attempt") {
