@@ -88,6 +88,7 @@ export function register(api) {
             program,
             workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
             gatewayUrl: resolveGatewayUrl(api.config),
+            defaultAgentId: resolveDefaultAgentId(api.config),
             resolveManager,
         });
     }, {

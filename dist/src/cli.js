@@ -130,6 +130,7 @@ export async function registerCuriosityCli(params) {
     }
     const manager = async () => params.resolveManager(workspaceDir);
     const gatewayUrl = params.gatewayUrl?.trim() || "ws://127.0.0.1:18789";
+    const defaultAgentId = params.defaultAgentId?.trim() || "main";
     const curiosity = params.program
         .command("curiosity")
         .description("Inspect and control autonomous curiosity behavior");
@@ -158,12 +159,12 @@ export async function registerCuriosityCli(params) {
     curiosity
         .command("tick")
         .description("Run one curiosity selection tick and optionally send the autonomous-start notice")
-        .option("--agent <id>", "Agent id for the autonomous run", "default")
+        .option("--agent <id>", "Agent id for the autonomous run")
         .option("--run-id <id>", "Run id to use for audit records")
         .option("--notify <boolean>", "Send configured start notification when a goal is selected", "true")
         .action(async (options) => {
         const runId = options.runId?.trim() || `curiosity-cli-${Date.now()}`;
-        const agentId = options.agent?.trim() || "default";
+        const agentId = options.agent?.trim() || defaultAgentId;
         const selectedManager = await manager();
         const decision = await selectGoal({
             manager: selectedManager,
@@ -180,14 +181,14 @@ export async function registerCuriosityCli(params) {
     curiosity
         .command("run")
         .description("Execute the next selected curiosity goal with an OpenClaw agent turn")
-        .option("--agent <id>", "Agent id for the autonomous run", "default")
+        .option("--agent <id>", "Agent id for the autonomous run")
         .option("--run-id <id>", "Run id to use for audit records")
         .option("--timeout <seconds>", "Agent command timeout in seconds", "900")
         .option("--select <boolean>", "Select a new goal when none is already selected", "true")
         .option("--notify <boolean>", "Send configured start notification for newly selected goals", "true")
         .action(async (options) => {
         const runId = options.runId?.trim() || `curiosity-run-${Date.now()}`;
-        const agentId = options.agent?.trim() || "default";
+        const agentId = options.agent?.trim() || defaultAgentId;
         const timeoutSeconds = Number.parseInt(options.timeout ?? "900", 10) || 900;
         const selectedManager = await manager();
         const existing = (await selectedManager.listGoalsByStatus(["selected", "in_progress"], 1))
