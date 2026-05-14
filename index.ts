@@ -42,6 +42,22 @@ function summarizeUnknown(value: unknown): string {
   }
 }
 
+function resolveGatewayUrl(config: unknown): string {
+  const envPort = process.env.OPENCLAW_GATEWAY_PORT?.trim();
+  if (envPort) {
+    return `ws://127.0.0.1:${envPort}`;
+  }
+  const root = config && typeof config === "object" ? (config as Record<string, unknown>) : {};
+  const gateway = root.gateway && typeof root.gateway === "object"
+    ? (root.gateway as Record<string, unknown>)
+    : {};
+  const port =
+    typeof gateway.port === "number" || typeof gateway.port === "string"
+      ? String(gateway.port).trim()
+      : "18789";
+  return `ws://127.0.0.1:${port || "18789"}`;
+}
+
 const NON_SURFACE_CONFIG_KEYS = new Set(["defaults", "default", "accounts"]);
 
 export const id = "curiosity";
@@ -103,6 +119,7 @@ export function register(api: OpenClawPluginApi) {
         await registerCuriosityCli({
           program,
           workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
+          gatewayUrl: resolveGatewayUrl(api.config),
           resolveManager,
         });
       },
