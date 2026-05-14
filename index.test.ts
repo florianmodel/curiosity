@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./api.js", () => ({
-  definePluginEntry: (entry: unknown) => entry,
   resolveAgentWorkspaceDir: () => "/tmp/curiosity-workspace",
   resolveDefaultAgentId: () => "default",
 }));
@@ -12,13 +11,13 @@ describe("curiosity plugin entry", () => {
   });
 
   it("registers hooks, tool, cli, and service surfaces", async () => {
-    const plugin = (await import("./index.js")).default;
+    const register = (await import("./index.js")).default;
     const toolSpy = vi.fn();
     const cliSpy = vi.fn();
     const serviceSpy = vi.fn();
     const onSpy = vi.fn();
 
-    plugin.register({
+    register({
       config: {},
       pluginConfig: {},
       logger: {},

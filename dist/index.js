@@ -1,4 +1,4 @@
-import { definePluginEntry, resolveAgentWorkspaceDir, resolveDefaultAgentId, } from "./api.js";
+import { resolveAgentWorkspaceDir, resolveDefaultAgentId, } from "./api.js";
 import { curiosityPluginConfigSchemaJson, resolveCuriosityConfig, } from "./src/config.js";
 import { renderAutonomousGoalPrompt, renderHeartbeatNoGoalPrompt } from "./src/prompt.js";
 import { clearActiveRun, getActiveRun, getOrCreateManager, getSoleActiveRun, rememberActiveRun, setRuntimeConfig, stopManagers, } from "./src/runtime.js";
@@ -26,6 +26,10 @@ function summarizeUnknown(value) {
     }
 }
 const NON_SURFACE_CONFIG_KEYS = new Set(["defaults", "default", "accounts"]);
+export const id = "curiosity";
+export const name = "Curiosity";
+export const description = "Autonomous goal discovery and curiosity scoring overlay for OpenClaw.";
+export const configSchema = curiosityPluginConfigSchemaJson;
 export function extractConfiguredSurfaces(config) {
     if (!config || typeof config !== "object") {
         return ["workspace"];
@@ -48,221 +52,217 @@ export function extractConfiguredSurfaces(config) {
     surfaces.add("workspace");
     return [...surfaces];
 }
-export default definePluginEntry({
-    id: "curiosity",
-    name: "Curiosity",
-    description: "Autonomous goal discovery and curiosity scoring overlay for OpenClaw.",
-    configSchema: curiosityPluginConfigSchemaJson,
-    register(api) {
-        const pluginConfig = resolveCuriosityConfig(api.pluginConfig);
-        setRuntimeConfig(pluginConfig);
-        const resolveManager = async (workspaceDir) => getOrCreateManager({
-            workspaceDir,
-            config: pluginConfig,
-            configuredSurfaces: extractConfiguredSurfaces(api.config),
-            logger: api.logger,
+export function register(api) {
+    const pluginConfig = resolveCuriosityConfig(api.pluginConfig);
+    setRuntimeConfig(pluginConfig);
+    const resolveManager = async (workspaceDir) => getOrCreateManager({
+        workspaceDir,
+        config: pluginConfig,
+        configuredSurfaces: extractConfiguredSurfaces(api.config),
+        logger: api.logger,
+    });
+    api.registerTool((ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
+        return createCuriosityInspectTool({
+            context: ctx,
+            resolveManager,
+            fallbackWorkspaceDir: workspaceDir,
         });
-        api.registerTool((ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
-            return createCuriosityInspectTool({
-                context: ctx,
-                resolveManager,
-                fallbackWorkspaceDir: workspaceDir,
-            });
-        }, { name: "curiosity_inspect", optional: true });
-        api.registerCli(async ({ program, workspaceDir }) => {
-            await registerCuriosityCli({
-                program,
-                workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
-                resolveManager,
-            });
-        }, {
-            descriptors: [
-                {
-                    name: "curiosity",
-                    description: "Inspect and control autonomous curiosity behavior",
-                    hasSubcommands: true,
-                },
-            ],
+    }, { name: "curiosity_inspect", optional: true });
+    api.registerCli(async ({ program, workspaceDir }) => {
+        await registerCuriosityCli({
+            program,
+            workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
+            resolveManager,
         });
-        api.registerService({
-            id: "curiosity",
-            start: async (ctx) => {
-                setRuntimeConfig(pluginConfig);
-                if (ctx.workspaceDir) {
-                    const manager = await resolveManager(ctx.workspaceDir);
-                    await manager.pruneRetention();
-                    await manager.getBoredomState();
-                }
-                api.logger.info?.("curiosity: service started");
+    }, {
+        descriptors: [
+            {
+                name: "curiosity",
+                description: "Inspect and control autonomous curiosity behavior",
+                hasSubcommands: true,
             },
-            stop: async () => {
-                await stopManagers();
-                api.logger.info?.("curiosity: service stopped");
-            },
-        });
-        api.on("message_received", async (event, ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api);
-            const manager = await resolveManager(workspaceDir);
-            await manager.recordObservation({
-                kind: "message_received",
+        ],
+    });
+    api.registerService({
+        id: "curiosity",
+        start: async (ctx) => {
+            setRuntimeConfig(pluginConfig);
+            if (ctx.workspaceDir) {
+                const manager = await resolveManager(ctx.workspaceDir);
+                await manager.pruneRetention();
+                await manager.getBoredomState();
+            }
+            api.logger.info?.("curiosity: service started");
+        },
+        stop: async () => {
+            await stopManagers();
+            api.logger.info?.("curiosity: service stopped");
+        },
+    });
+    api.on("message_received", async (event, ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api);
+        const manager = await resolveManager(workspaceDir);
+        await manager.recordObservation({
+            kind: "message_received",
+            channelId: ctx.channelId,
+            content: event.content,
+            metadata: {
+                from: event.from,
                 channelId: ctx.channelId,
-                content: event.content,
-                metadata: {
-                    from: event.from,
-                    channelId: ctx.channelId,
-                },
-            });
+            },
         });
-        api.on("before_prompt_build", async (_event, ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
-            const manager = await resolveManager(workspaceDir);
-            if (ctx.trigger === "heartbeat" && ctx.runId && ctx.agentId) {
-                const decision = await manager.selectGoalForRun({
-                    agentId: ctx.agentId,
-                    runId: ctx.runId,
-                    trigger: ctx.trigger,
-                });
-                if (decision.selected) {
-                    rememberActiveRun({
-                        runId: ctx.runId,
-                        goalId: decision.goal.goalId,
-                        agentId: ctx.agentId,
-                        selectedAt: Date.now(),
-                    });
-                    await manager.notifyAutonomousStart({
-                        runId: ctx.runId,
-                        agentId: ctx.agentId,
-                        goal: decision.goal,
-                    });
-                    return {
-                        prependContext: renderAutonomousGoalPrompt({
-                            goal: decision.goal,
-                            budgetUsage: decision.budgetUsage,
-                            threshold: pluginConfig.thresholds.act,
-                        }),
-                    };
-                }
-                return {
-                    prependContext: renderHeartbeatNoGoalPrompt(decision.reason),
-                };
-            }
-            const awareness = await manager.buildAwarenessContext();
-            return awareness ? { prependContext: awareness } : undefined;
-        });
-        api.on("before_tool_call", async (event, ctx) => {
-            const activeRun = getActiveRun(event.runId ?? ctx.runId);
-            if (!activeRun) {
-                return;
-            }
-            const workspaceDir = resolveWorkspaceDir(api, undefined, activeRun.agentId);
-            const manager = await resolveManager(workspaceDir);
-            const allowed = await manager.canUseTool(activeRun.runId, event.toolName);
-            if (!allowed.allowed) {
-                return {
-                    block: true,
-                    blockReason: `curiosity policy blocked tool "${event.toolName}": ${allowed.reason}`,
-                };
-            }
-        });
-        api.on("after_tool_call", async (event, ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api, undefined, ctx.agentId);
-            const manager = await resolveManager(workspaceDir);
-            await manager.recordObservation({
-                kind: event.error ? "tool_failure" : "tool_success",
+    });
+    api.on("before_prompt_build", async (_event, ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
+        const manager = await resolveManager(workspaceDir);
+        if (ctx.trigger === "heartbeat" && ctx.runId && ctx.agentId) {
+            const decision = await manager.selectGoalForRun({
+                agentId: ctx.agentId,
                 runId: ctx.runId,
-                agentId: ctx.agentId,
-                sessionKey: ctx.sessionKey,
-                toolName: event.toolName,
-                success: !event.error,
-                content: summarizeUnknown(event.error ?? event.result),
-                metadata: {
-                    durationMs: event.durationMs,
-                    toolCallId: event.toolCallId,
-                },
+                trigger: ctx.trigger,
             });
-        });
-        api.on("message_sending", async (event, ctx) => {
-            const activeRun = getSoleActiveRun();
-            const workspaceDir = resolveWorkspaceDir(api);
-            const manager = await resolveManager(workspaceDir);
-            await manager.recordObservation({
-                kind: "message_sending",
-                channelId: ctx.channelId,
-                content: event.content,
-                metadata: {
-                    to: event.to,
-                    channelId: ctx.channelId,
-                },
-            });
-            if (!activeRun) {
-                return;
-            }
-            const allowed = await manager.canSendMessage(activeRun.runId, ctx.channelId ?? event.to, event.to);
-            if (!allowed.allowed) {
+            if (decision.selected) {
+                rememberActiveRun({
+                    runId: ctx.runId,
+                    goalId: decision.goal.goalId,
+                    agentId: ctx.agentId,
+                    selectedAt: Date.now(),
+                });
+                await manager.notifyAutonomousStart({
+                    runId: ctx.runId,
+                    agentId: ctx.agentId,
+                    goal: decision.goal,
+                });
                 return {
-                    cancel: true,
-                    content: `Curiosity policy blocked send to ${ctx.channelId ?? event.to}: ${allowed.reason}`,
+                    prependContext: renderAutonomousGoalPrompt({
+                        goal: decision.goal,
+                        budgetUsage: decision.budgetUsage,
+                        threshold: pluginConfig.thresholds.act,
+                    }),
                 };
             }
-        });
-        api.on("message_sent", async (event, ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api);
-            const manager = await resolveManager(workspaceDir);
-            await manager.recordObservation({
-                kind: "message_sent",
-                channelId: ctx.channelId,
-                success: event.success,
-                content: event.content,
-                metadata: {
-                    to: event.to,
-                    error: event.error,
-                    channelId: ctx.channelId,
-                },
-            });
-        });
-        api.on("llm_output", async (event, ctx) => {
-            const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
-            const manager = await resolveManager(workspaceDir);
-            const activeRun = getActiveRun(event.runId);
-            await manager.recordObservation({
-                kind: "assistant_output",
-                runId: event.runId,
-                agentId: ctx.agentId,
-                sessionKey: ctx.sessionKey,
-                content: event.assistantTexts.join("\n"),
-                metadata: {
-                    provider: event.provider,
-                    model: event.model,
-                },
-            });
-            await manager.updateRunTokens({
-                runId: event.runId,
-                goalId: activeRun?.goalId,
-                agentId: ctx.agentId ?? "unknown",
-                trigger: ctx.trigger ?? "user",
-                inputTokens: event.usage?.input,
-                outputTokens: event.usage?.output,
-                totalTokens: event.usage?.total,
-            });
-        });
-        api.on("agent_end", async (event, ctx) => {
-            const activeRun = getActiveRun(ctx.runId);
-            if (!activeRun) {
-                return;
-            }
-            const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, activeRun.agentId);
-            const manager = await resolveManager(workspaceDir);
-            await manager.finalizeAutonomousRun({
-                runId: activeRun.runId,
-                goalId: activeRun.goalId,
-                agentId: activeRun.agentId,
-                trigger: ctx.trigger ?? "heartbeat",
-                success: event.success,
+            return {
+                prependContext: renderHeartbeatNoGoalPrompt(decision.reason),
+            };
+        }
+        const awareness = await manager.buildAwarenessContext();
+        return awareness ? { prependContext: awareness } : undefined;
+    });
+    api.on("before_tool_call", async (event, ctx) => {
+        const activeRun = getActiveRun(event.runId ?? ctx.runId);
+        if (!activeRun) {
+            return;
+        }
+        const workspaceDir = resolveWorkspaceDir(api, undefined, activeRun.agentId);
+        const manager = await resolveManager(workspaceDir);
+        const allowed = await manager.canUseTool(activeRun.runId, event.toolName);
+        if (!allowed.allowed) {
+            return {
+                block: true,
+                blockReason: `curiosity policy blocked tool "${event.toolName}": ${allowed.reason}`,
+            };
+        }
+    });
+    api.on("after_tool_call", async (event, ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api, undefined, ctx.agentId);
+        const manager = await resolveManager(workspaceDir);
+        await manager.recordObservation({
+            kind: event.error ? "tool_failure" : "tool_success",
+            runId: ctx.runId,
+            agentId: ctx.agentId,
+            sessionKey: ctx.sessionKey,
+            toolName: event.toolName,
+            success: !event.error,
+            content: summarizeUnknown(event.error ?? event.result),
+            metadata: {
                 durationMs: event.durationMs,
-                error: event.error,
-            });
-            clearActiveRun(ctx.runId);
+                toolCallId: event.toolCallId,
+            },
         });
-    },
-});
+    });
+    api.on("message_sending", async (event, ctx) => {
+        const activeRun = getSoleActiveRun();
+        const workspaceDir = resolveWorkspaceDir(api);
+        const manager = await resolveManager(workspaceDir);
+        await manager.recordObservation({
+            kind: "message_sending",
+            channelId: ctx.channelId,
+            content: event.content,
+            metadata: {
+                to: event.to,
+                channelId: ctx.channelId,
+            },
+        });
+        if (!activeRun) {
+            return;
+        }
+        const allowed = await manager.canSendMessage(activeRun.runId, ctx.channelId ?? event.to, event.to);
+        if (!allowed.allowed) {
+            return {
+                cancel: true,
+                content: `Curiosity policy blocked send to ${ctx.channelId ?? event.to}: ${allowed.reason}`,
+            };
+        }
+    });
+    api.on("message_sent", async (event, ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api);
+        const manager = await resolveManager(workspaceDir);
+        await manager.recordObservation({
+            kind: "message_sent",
+            channelId: ctx.channelId,
+            success: event.success,
+            content: event.content,
+            metadata: {
+                to: event.to,
+                error: event.error,
+                channelId: ctx.channelId,
+            },
+        });
+    });
+    api.on("llm_output", async (event, ctx) => {
+        const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
+        const manager = await resolveManager(workspaceDir);
+        const activeRun = getActiveRun(event.runId);
+        await manager.recordObservation({
+            kind: "assistant_output",
+            runId: event.runId,
+            agentId: ctx.agentId,
+            sessionKey: ctx.sessionKey,
+            content: event.assistantTexts.join("\n"),
+            metadata: {
+                provider: event.provider,
+                model: event.model,
+            },
+        });
+        await manager.updateRunTokens({
+            runId: event.runId,
+            goalId: activeRun?.goalId,
+            agentId: ctx.agentId ?? "unknown",
+            trigger: ctx.trigger ?? "user",
+            inputTokens: event.usage?.input,
+            outputTokens: event.usage?.output,
+            totalTokens: event.usage?.total,
+        });
+    });
+    api.on("agent_end", async (event, ctx) => {
+        const activeRun = getActiveRun(ctx.runId);
+        if (!activeRun) {
+            return;
+        }
+        const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, activeRun.agentId);
+        const manager = await resolveManager(workspaceDir);
+        await manager.finalizeAutonomousRun({
+            runId: activeRun.runId,
+            goalId: activeRun.goalId,
+            agentId: activeRun.agentId,
+            trigger: ctx.trigger ?? "heartbeat",
+            success: event.success,
+            durationMs: event.durationMs,
+            error: event.error,
+        });
+        clearActiveRun(ctx.runId);
+    });
+}
+export const activate = register;
+export default register;

@@ -1,5 +1,4 @@
 import {
-  definePluginEntry,
   resolveAgentWorkspaceDir,
   resolveDefaultAgentId,
   type OpenClawPluginApi,
@@ -45,6 +44,11 @@ function summarizeUnknown(value: unknown): string {
 
 const NON_SURFACE_CONFIG_KEYS = new Set(["defaults", "default", "accounts"]);
 
+export const id = "curiosity";
+export const name = "Curiosity";
+export const description = "Autonomous goal discovery and curiosity scoring overlay for OpenClaw.";
+export const configSchema = curiosityPluginConfigSchemaJson;
+
 export function extractConfiguredSurfaces(config: Record<string, unknown> | undefined): string[] {
   if (!config || typeof config !== "object") {
     return ["workspace"];
@@ -70,12 +74,7 @@ export function extractConfiguredSurfaces(config: Record<string, unknown> | unde
   return [...surfaces];
 }
 
-export default definePluginEntry({
-  id: "curiosity",
-  name: "Curiosity",
-  description: "Autonomous goal discovery and curiosity scoring overlay for OpenClaw.",
-  configSchema: curiosityPluginConfigSchemaJson,
-  register(api: OpenClawPluginApi) {
+export function register(api: OpenClawPluginApi) {
     const pluginConfig = resolveCuriosityConfig(api.pluginConfig);
     setRuntimeConfig(pluginConfig);
 
@@ -311,5 +310,8 @@ export default definePluginEntry({
       });
       clearActiveRun(ctx.runId);
     });
-  },
-});
+}
+
+export const activate = register;
+
+export default register;
