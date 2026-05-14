@@ -435,7 +435,7 @@ export class CuriosityManager {
             .get(runId);
         return asString(row?.goal_id);
     }
-    async markGoalInProgress(runId) {
+    async markRunGoalInProgress(runId) {
         const goalId = await this.getGoalIdForRun(runId);
         if (!goalId) {
             return;
@@ -485,7 +485,7 @@ export class CuriosityManager {
                 return { allowed: false, reason: "external action hourly budget exhausted", goalId };
             }
         }
-        await this.markGoalInProgress(runId);
+        await this.markRunGoalInProgress(runId);
         await this.appendAuditEvent({
             eventType: safeLocalTool ? "tool_allowed" : "external_action",
             goalId,
@@ -516,7 +516,7 @@ export class CuriosityManager {
         if (usage.externalActions1h >= this.config.budgets.externalActionsPerHour) {
             return { allowed: false, reason: "external action hourly budget exhausted", goalId };
         }
-        await this.markGoalInProgress(runId);
+        await this.markRunGoalInProgress(runId);
         await this.appendAuditEvent({
             eventType: "external_action",
             goalId,
@@ -582,6 +582,18 @@ export class CuriosityManager {
     }
     async listRecentCompletedGoals(limit = 10) {
         return this.listGoalsByStatus(["completed", "failed"], limit);
+    }
+    async markGoalInProgress(params) {
+        const db = await this.ensureDb();
+        const now = params.now ?? Date.now();
+        db.prepare(`UPDATE goals SET status = ?, last_run_id = ?, updated_at = ? WHERE goal_id = ?`).run("in_progress", params.runId, now, params.goalId);
+        await this.appendAuditEvent({
+            ts: now,
+            eventType: "goal_in_progress",
+            goalId: params.goalId,
+            runId: params.runId,
+            payload: {},
+        });
     }
     async listRecentObservations(limit = 100) {
         const db = await this.ensureDb();
