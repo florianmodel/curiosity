@@ -2,6 +2,19 @@ import { parseWindowDuration } from "./config.js";
 function printJson(value) {
     console.log(JSON.stringify(value, null, 2));
 }
+function parseBooleanOption(value, fallback) {
+    if (value === undefined) {
+        return fallback;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+        return true;
+    }
+    if (["0", "false", "no", "n", "off"].includes(normalized)) {
+        return false;
+    }
+    return fallback;
+}
 export async function registerCuriosityCli(params) {
     const workspaceDir = params.workspaceDir;
     if (!workspaceDir) {
@@ -32,6 +45,36 @@ export async function registerCuriosityCli(params) {
         .option("--window <duration>", "Window like 30m, 6h, or 7d", "24h")
         .action(async (options) => {
         printJson(await (await manager()).compareWindow(parseWindowDuration(options.window)));
+    });
+    curiosity
+        .command("tick")
+        .description("Run one curiosity selection tick and optionally send the autonomous-start notice")
+        .option("--agent <id>", "Agent id for the autonomous run", "default")
+        .option("--run-id <id>", "Run id to use for audit records")
+        .option("--notify <boolean>", "Send configured start notification when a goal is selected", "true")
+        .action(async (options) => {
+        const runId = options.runId?.trim() || `curiosity-cli-${Date.now()}`;
+        const agentId = options.agent?.trim() || "default";
+        const selectedManager = await manager();
+        const decision = await selectedManager.selectGoalForRun({
+            agentId,
+            runId,
+            trigger: "curiosity-cli",
+        });
+        const notify = parseBooleanOption(options.notify, true);
+        const notification = decision.selected && notify
+            ? await selectedManager.notifyAutonomousStart({
+                runId,
+                agentId,
+                goal: decision.goal,
+            })
+            : undefined;
+        printJson({
+            ...decision,
+            runId,
+            agentId,
+            notification,
+        });
     });
     curiosity
         .command("pause")
