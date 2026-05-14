@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { parseWindowDuration } from "./config.js";
 import type { CuriosityManager } from "./manager.js";
 import type { GoalRecord, GoalSelectionDecision } from "./types.js";
@@ -58,63 +56,112 @@ function renderGoalRunMessage(goal: GoalRecord): string {
   ].join("\n");
 }
 
-function runOpenClawAgent(params: {
+type GatewayClientInstance = {
+  start: () => void;
+  stopAndWait: (opts?: { timeoutMs?: number }) => Promise<void>;
+  request: <T = Record<string, unknown>>(
+    method: string,
+    params?: unknown,
+    opts?: { expectFinal?: boolean; timeoutMs?: number | null },
+  ) => Promise<T>;
+};
+
+type GatewayClientConstructor = new (opts: {
+  url?: string;
+  requestTimeoutMs?: number;
+  clientDisplayName?: string;
+  onHelloOk?: () => void;
+  onConnectError?: (err: Error) => void;
+}) => GatewayClientInstance;
+
+async function runOpenClawAgent(params: {
   agentId: string;
   runId: string;
   message: string;
   timeoutSeconds: number;
-  workspaceDir: string;
+  gatewayUrl: string;
 }): Promise<{
   exitCode: number | null;
   stdout: string;
   stderr: string;
 }> {
-  const cliEntrypoint = process.argv[1];
-  const useNodeEntrypoint = Boolean(cliEntrypoint && existsSync(cliEntrypoint));
-  const command = useNodeEntrypoint ? process.execPath : "openclaw";
-  const args = useNodeEntrypoint
-    ? [
-        cliEntrypoint,
-        "agent",
-        "--agent",
-        params.agentId,
-        "--message",
-        params.message,
-        "--timeout",
-        String(params.timeoutSeconds),
-        "--json",
-      ]
-    : [
-        "agent",
-        "--agent",
-        params.agentId,
-        "--message",
-        params.message,
-        "--timeout",
-        String(params.timeoutSeconds),
-        "--json",
-      ];
+  const { GatewayClient } = (await import("openclaw/plugin-sdk/gateway-runtime")) as {
+    GatewayClient: GatewayClientConstructor;
+  };
+  const timeoutMs = Math.max(10_000, (params.timeoutSeconds + 30) * 1000);
 
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: params.workspaceDir,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
+    let client: GatewayClientInstance;
+    let settled = false;
+    const finish = (value: { exitCode: number | null; stdout: string; stderr: string }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      void client.stopAndWait().finally(() => resolve(value));
+    };
+    const fail = (err: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      void client.stopAndWait().finally(() => reject(err));
+    };
+
+    const timer = setTimeout(() => {
+      fail(new Error(`gateway agent request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    client = new GatewayClient({
+      url: params.gatewayUrl,
+      requestTimeoutMs: timeoutMs,
+      clientDisplayName: "Curiosity",
+      onHelloOk: () => {
+        client
+          .request<{
+            status?: string;
+            summary?: string;
+            result?: { payloads?: Array<{ text?: string; mediaUrl?: string | null; mediaUrls?: string[] }> };
+          }>(
+            "agent",
+            {
+              message: params.message,
+              agentId: params.agentId,
+              timeout: params.timeoutSeconds,
+              idempotencyKey: params.runId,
+            },
+            { expectFinal: true, timeoutMs },
+          )
+          .then((response) => {
+            clearTimeout(timer);
+            const payloads = response.result?.payloads ?? [];
+            const text = payloads
+              .map((payload) => [payload.text, payload.mediaUrl, ...(payload.mediaUrls ?? [])]
+                .filter(Boolean)
+                .join("\n"))
+              .filter(Boolean)
+              .join("\n\n");
+            finish({
+              exitCode: 0,
+              stdout: text || response.summary || JSON.stringify(response),
+              stderr: "",
+            });
+          })
+          .catch((err) => {
+            clearTimeout(timer);
+            finish({
+              exitCode: 1,
+              stdout: "",
+              stderr: err instanceof Error ? err.message : String(err),
+            });
+          });
+      },
+      onConnectError: (err) => {
+        clearTimeout(timer);
+        fail(err);
+      },
     });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolve({ exitCode, stdout, stderr });
-    });
+    client.start();
   });
 }
 
@@ -144,6 +191,7 @@ export async function registerCuriosityCli(params: {
     command: (name: string) => CliCommand;
   };
   workspaceDir?: string;
+  gatewayUrl?: string;
   resolveManager: (workspaceDir: string) => Promise<CuriosityManager>;
 }) {
   const workspaceDir = params.workspaceDir;
@@ -152,6 +200,7 @@ export async function registerCuriosityCli(params: {
   }
 
   const manager = async () => params.resolveManager(workspaceDir);
+  const gatewayUrl = params.gatewayUrl?.trim() || "ws://127.0.0.1:18789";
 
   const curiosity = params.program
     .command("curiosity")
@@ -253,7 +302,7 @@ export async function registerCuriosityCli(params: {
           runId,
           message: renderGoalRunMessage(selection.goal),
           timeoutSeconds,
-          workspaceDir,
+          gatewayUrl,
         });
         const success = result.exitCode === 0;
         await selectedManager.finalizeAutonomousRun({

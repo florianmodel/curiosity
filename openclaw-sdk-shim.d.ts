@@ -51,3 +51,22 @@ declare module "openclaw/plugin-sdk/agent-runtime" {
   ): string;
   export function resolveDefaultAgentId(config: Record<string, unknown>): string;
 }
+
+declare module "openclaw/plugin-sdk/gateway-runtime" {
+  export class GatewayClient {
+    constructor(opts: {
+      url?: string;
+      requestTimeoutMs?: number;
+      clientDisplayName?: string;
+      onHelloOk?: () => void;
+      onConnectError?: (err: Error) => void;
+    });
+    start(): void;
+    stopAndWait(opts?: { timeoutMs?: number }): Promise<void>;
+    request<T = Record<string, unknown>>(
+      method: string,
+      params?: unknown,
+      opts?: { expectFinal?: boolean; timeoutMs?: number | null },
+    ): Promise<T>;
+  }
+}

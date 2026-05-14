@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { parseWindowDuration } from "./config.js";
 function printJson(value) {
     console.log(JSON.stringify(value, null, 2));
@@ -43,52 +41,71 @@ function renderGoalRunMessage(goal) {
         "- End with a concise summary of what you inspected, what you learned, and the next clue.",
     ].join("\n");
 }
-function runOpenClawAgent(params) {
-    const cliEntrypoint = process.argv[1];
-    const useNodeEntrypoint = Boolean(cliEntrypoint && existsSync(cliEntrypoint));
-    const command = useNodeEntrypoint ? process.execPath : "openclaw";
-    const args = useNodeEntrypoint
-        ? [
-            cliEntrypoint,
-            "agent",
-            "--agent",
-            params.agentId,
-            "--message",
-            params.message,
-            "--timeout",
-            String(params.timeoutSeconds),
-            "--json",
-        ]
-        : [
-            "agent",
-            "--agent",
-            params.agentId,
-            "--message",
-            params.message,
-            "--timeout",
-            String(params.timeoutSeconds),
-            "--json",
-        ];
+async function runOpenClawAgent(params) {
+    const { GatewayClient } = (await import("openclaw/plugin-sdk/gateway-runtime"));
+    const timeoutMs = Math.max(10_000, (params.timeoutSeconds + 30) * 1000);
     return new Promise((resolve, reject) => {
-        const child = spawn(command, args, {
-            cwd: params.workspaceDir,
-            env: process.env,
-            stdio: ["ignore", "pipe", "pipe"],
+        let client;
+        let settled = false;
+        const finish = (value) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            void client.stopAndWait().finally(() => resolve(value));
+        };
+        const fail = (err) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            void client.stopAndWait().finally(() => reject(err));
+        };
+        const timer = setTimeout(() => {
+            fail(new Error(`gateway agent request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        client = new GatewayClient({
+            url: params.gatewayUrl,
+            requestTimeoutMs: timeoutMs,
+            clientDisplayName: "Curiosity",
+            onHelloOk: () => {
+                client
+                    .request("agent", {
+                    message: params.message,
+                    agentId: params.agentId,
+                    timeout: params.timeoutSeconds,
+                    idempotencyKey: params.runId,
+                }, { expectFinal: true, timeoutMs })
+                    .then((response) => {
+                    clearTimeout(timer);
+                    const payloads = response.result?.payloads ?? [];
+                    const text = payloads
+                        .map((payload) => [payload.text, payload.mediaUrl, ...(payload.mediaUrls ?? [])]
+                        .filter(Boolean)
+                        .join("\n"))
+                        .filter(Boolean)
+                        .join("\n\n");
+                    finish({
+                        exitCode: 0,
+                        stdout: text || response.summary || JSON.stringify(response),
+                        stderr: "",
+                    });
+                })
+                    .catch((err) => {
+                    clearTimeout(timer);
+                    finish({
+                        exitCode: 1,
+                        stdout: "",
+                        stderr: err instanceof Error ? err.message : String(err),
+                    });
+                });
+            },
+            onConnectError: (err) => {
+                clearTimeout(timer);
+                fail(err);
+            },
         });
-        let stdout = "";
-        let stderr = "";
-        child.stdout.setEncoding("utf8");
-        child.stderr.setEncoding("utf8");
-        child.stdout.on("data", (chunk) => {
-            stdout += chunk;
-        });
-        child.stderr.on("data", (chunk) => {
-            stderr += chunk;
-        });
-        child.on("error", reject);
-        child.on("close", (exitCode) => {
-            resolve({ exitCode, stdout, stderr });
-        });
+        client.start();
     });
 }
 async function selectGoal(params) {
@@ -112,6 +129,7 @@ export async function registerCuriosityCli(params) {
         return;
     }
     const manager = async () => params.resolveManager(workspaceDir);
+    const gatewayUrl = params.gatewayUrl?.trim() || "ws://127.0.0.1:18789";
     const curiosity = params.program
         .command("curiosity")
         .description("Inspect and control autonomous curiosity behavior");
@@ -195,7 +213,7 @@ export async function registerCuriosityCli(params) {
             runId,
             message: renderGoalRunMessage(selection.goal),
             timeoutSeconds,
-            workspaceDir,
+            gatewayUrl,
         });
         const success = result.exitCode === 0;
         await selectedManager.finalizeAutonomousRun({
