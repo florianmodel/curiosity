@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CURIOSITY_CONFIG } from "./config.js";
 import { CuriosityManager, isWithinActiveWindow } from "./manager.js";
 import type { CuriosityConfig, GoalSourcesConfig } from "./types.js";
@@ -37,7 +37,14 @@ const NO_GOAL_SOURCES: GoalSourcesConfig = {
 type CuriosityConfigOverrides = Partial<
   Omit<
     CuriosityConfig,
-    "budgets" | "goalSources" | "ensembleWeights" | "thresholds" | "boredom" | "logging" | "actionPolicy"
+    | "budgets"
+    | "goalSources"
+    | "ensembleWeights"
+    | "thresholds"
+    | "boredom"
+    | "logging"
+    | "actionPolicy"
+    | "notifications"
   >
 > & {
   budgets?: Partial<CuriosityConfig["budgets"]>;
@@ -47,6 +54,9 @@ type CuriosityConfigOverrides = Partial<
   boredom?: Partial<CuriosityConfig["boredom"]>;
   logging?: Partial<CuriosityConfig["logging"]>;
   actionPolicy?: Partial<CuriosityConfig["actionPolicy"]>;
+  notifications?: {
+    autonomousStart?: Partial<CuriosityConfig["notifications"]["autonomousStart"]>;
+  };
 };
 
 function mergeConfig(overrides: CuriosityConfigOverrides = {}): CuriosityConfig {
@@ -82,6 +92,12 @@ function mergeConfig(overrides: CuriosityConfigOverrides = {}): CuriosityConfig 
     actionPolicy: {
       ...DEFAULT_CURIOSITY_CONFIG.actionPolicy,
       ...overrides.actionPolicy,
+    },
+    notifications: {
+      autonomousStart: {
+        ...DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart,
+        ...overrides.notifications?.autonomousStart,
+      },
     },
   };
 }
@@ -270,5 +286,53 @@ describe("CuriosityManager", () => {
     expect(isWithinActiveWindow(config, Date.UTC(2026, 0, 1, 23, 0))).toBe(true);
     expect(isWithinActiveWindow(config, Date.UTC(2026, 0, 2, 1, 0))).toBe(true);
     expect(isWithinActiveWindow(config, Date.UTC(2026, 0, 1, 12, 0))).toBe(false);
+  });
+
+  it("sends an autonomous-start notification when configured", async () => {
+    const manager = await createManager({
+      notifications: {
+        autonomousStart: {
+          enabled: true,
+          provider: "telegram",
+          telegram: {
+            botToken: "bot-token",
+            chatId: "12345",
+            apiBaseUrl: "https://telegram.example",
+          },
+        },
+      },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      channelId: "telegram",
+      content: "Can you investigate the flaky deploy pipeline?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-notify",
+      trigger: "heartbeat",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+    const fetchFn = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://telegram.example/botbot-token/sendMessage");
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.chat_id).toBe("12345");
+      expect(String(body.text)).toContain("OpenClaw curiosity started");
+      expect(String(body.text)).toContain("flaky deploy pipeline");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    await expect(
+      manager.notifyAutonomousStart({
+        runId: "run-notify",
+        agentId: "main",
+        goal: decision.goal,
+        fetchFn,
+      }),
+    ).resolves.toEqual({ sent: true });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });

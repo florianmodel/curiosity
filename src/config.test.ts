@@ -12,6 +12,15 @@ describe("resolveCuriosityConfig", () => {
       thresholds: { act: 0.7 },
       boredom: { idleStartMinutes: 2, saturationMinutes: 20, maxScoreBonus: 0.4 },
       actionPolicy: { externalTargetPolicy: "research-web-only" },
+      notifications: {
+        autonomousStart: {
+          enabled: true,
+          provider: "telegram",
+          telegram: { botToken: "token", chatId: "123", disableNotification: true },
+          minIntervalMinutes: 15,
+          includeEvidence: false,
+        },
+      },
     });
 
     expect(resolved.budgets.autonomousRunsPerDay).toBe(5);
@@ -26,6 +35,13 @@ describe("resolveCuriosityConfig", () => {
     expect(resolved.budgets.externalActionsPerDay).toBe(
       DEFAULT_CURIOSITY_CONFIG.budgets.externalActionsPerDay,
     );
+    expect(resolved.notifications.autonomousStart).toEqual({
+      enabled: true,
+      provider: "telegram",
+      telegram: { botToken: "token", chatId: "123", disableNotification: true },
+      minIntervalMinutes: 15,
+      includeEvidence: false,
+    });
   });
 
   it("keeps boredom saturation after the start point", () => {

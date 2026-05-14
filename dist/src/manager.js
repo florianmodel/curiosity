@@ -4,9 +4,11 @@ import path from "node:path";
 import { resolveCuriosityWorkspaceDir } from "./config.js";
 import { renderAwarenessPrompt } from "./prompt.js";
 import { rankGoalsByScore, extractKeywords, scoreCandidate } from "./scoring.js";
+import { sendAutonomousStartNotice } from "./notifications.js";
 import { openCuriosityDatabase } from "./sqlite.js";
 const POLICY_NAME = "balanced_ensemble_v1";
 const IDLE_ANCHOR_META_KEY = "idle_anchor_at";
+const AUTONOMOUS_START_NOTICE_META_KEY = "autonomous_start_notice_sent_at";
 const SAFE_LOCAL_TOOLS = new Set([
     "read",
     "write",
@@ -311,6 +313,15 @@ export class CuriosityManager {
     writeIdleAnchor(db, ts) {
         db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(IDLE_ANCHOR_META_KEY, String(Math.trunc(ts)));
+    }
+    readNumericMeta(db, key) {
+        const row = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key);
+        const parsed = Number(row?.value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    writeNumericMeta(db, key, value) {
+        db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, String(Math.trunc(value)));
     }
     async resolveIdleAnchor(now) {
         const db = await this.ensureDb();
@@ -967,6 +978,32 @@ export class CuriosityManager {
             runId: params.runId,
             payload: outcome,
         });
+    }
+    async notifyAutonomousStart(params) {
+        const db = await this.ensureDb();
+        const now = params.now ?? Date.now();
+        const result = await sendAutonomousStartNotice({
+            config: this.config.notifications.autonomousStart,
+            goal: params.goal,
+            agentId: params.agentId,
+            runId: params.runId,
+            workspaceDir: this.workspaceDir,
+            now,
+            lastSentAt: this.readNumericMeta(db, AUTONOMOUS_START_NOTICE_META_KEY),
+            fetchFn: params.fetchFn,
+            logger: this.logger,
+        });
+        if (result.sent) {
+            this.writeNumericMeta(db, AUTONOMOUS_START_NOTICE_META_KEY, now);
+        }
+        await this.appendAuditEvent({
+            ts: now,
+            eventType: result.sent ? "autonomous_start_notification_sent" : "autonomous_start_notification_skipped",
+            goalId: params.goal.goalId,
+            runId: params.runId,
+            payload: result,
+        });
+        return result;
     }
     async updateRunTokens(params) {
         await this.recordRunUsage({

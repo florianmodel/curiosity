@@ -31,6 +31,19 @@ export type ExternalTargetPolicy =
 
 export type DisagreementFallback = "explore-anyway" | "defer" | "ask";
 
+export type AutonomousStartNotificationConfig = {
+  enabled: boolean;
+  provider: "telegram";
+  telegram?: {
+    botToken?: string;
+    chatId?: string;
+    apiBaseUrl?: string;
+    disableNotification?: boolean;
+  };
+  minIntervalMinutes: number;
+  includeEvidence: boolean;
+};
+
 export type ActiveWindowConfig = {
   start: string;
   end: string;
@@ -83,6 +96,9 @@ export type CuriosityConfig = {
     disagreementFallback: DisagreementFallback;
     activeHours: "always-on" | "configured-window";
     activeWindow?: ActiveWindowConfig;
+  };
+  notifications: {
+    autonomousStart: AutonomousStartNotificationConfig;
   };
 };
 
