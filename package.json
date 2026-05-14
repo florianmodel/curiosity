@@ -1,0 +1,46 @@
+{
+  "name": "@flo/openclaw-curiosity",
+  "version": "0.1.0",
+  "description": "Curiosity overlay plugin for OpenClaw autonomous goal discovery",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.3"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.3",
+      "minGatewayVersion": "2026.4.3"
+    },
+    "build": {
+      "openclawVersion": "2026.4.3",
+      "pluginSdkVersion": "2026.4.3"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "package.json",
+    "README.md"
+  ]
+}
