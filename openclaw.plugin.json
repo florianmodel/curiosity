@@ -205,6 +205,63 @@
             }
           }
         }
+      },
+      "notifications": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "autonomousStart": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean",
+                "description": "Send a human notification when curiosity starts an autonomous run."
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "telegram"
+                ],
+                "description": "Notification provider. Telegram is currently supported."
+              },
+              "minIntervalMinutes": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Minimum minutes between autonomous-start notifications."
+              },
+              "includeEvidence": {
+                "type": "boolean",
+                "description": "Include the selected goal evidence in the notification body."
+              },
+              "telegram": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "botToken": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Telegram bot token used only for curiosity start notifications."
+                  },
+                  "chatId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Telegram chat ID, user ID, group ID, or @channel target."
+                  },
+                  "apiBaseUrl": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Optional Telegram API base URL; defaults to https://api.telegram.org."
+                  },
+                  "disableNotification": {
+                    "type": "boolean",
+                    "description": "Use Telegram silent delivery for the notification."
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -240,6 +297,10 @@
     "actionPolicy": {
       "label": "Action Policy",
       "help": "How far autonomous actions may go once a goal is selected."
+    },
+    "notifications": {
+      "label": "Notifications",
+      "help": "Human-facing notices for autonomous curiosity activity."
     }
   }
 }
