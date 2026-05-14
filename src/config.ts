@@ -53,6 +53,14 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     disagreementFallback: "explore-anyway",
     activeHours: "always-on",
   },
+  notifications: {
+    autonomousStart: {
+      enabled: false,
+      provider: "telegram",
+      minIntervalMinutes: 0,
+      includeEvidence: true,
+    },
+  },
 };
 
 export const curiosityPluginConfigSchemaJson = {
@@ -177,6 +185,61 @@ export const curiosityPluginConfigSchemaJson = {
         },
       },
     },
+    notifications: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        autonomousStart: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            enabled: {
+              type: "boolean",
+              description: "Send a human notification when curiosity starts an autonomous run.",
+            },
+            provider: {
+              type: "string",
+              enum: ["telegram"],
+              description: "Notification provider. Telegram is currently supported.",
+            },
+            minIntervalMinutes: {
+              type: "number",
+              minimum: 0,
+              description: "Minimum minutes between autonomous-start notifications.",
+            },
+            includeEvidence: {
+              type: "boolean",
+              description: "Include the selected goal evidence in the notification body.",
+            },
+            telegram: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                botToken: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Telegram bot token used only for curiosity start notifications.",
+                },
+                chatId: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Telegram chat ID, user ID, group ID, or @channel target.",
+                },
+                apiBaseUrl: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Optional Telegram API base URL; defaults to https://api.telegram.org.",
+                },
+                disableNotification: {
+                  type: "boolean",
+                  description: "Use Telegram silent delivery for the notification.",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   },
 } as const satisfies Record<string, unknown>;
 
@@ -240,6 +303,27 @@ function activeWindowOrUndefined(value: unknown) {
   return timeZone ? { start, end, timeZone } : { start, end };
 }
 
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function telegramNotificationOrUndefined(value: unknown) {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const botToken = stringOrUndefined(record.botToken);
+  const chatId = stringOrUndefined(record.chatId);
+  const apiBaseUrl = stringOrUndefined(record.apiBaseUrl);
+  const disableNotification = booleanOrDefault(record.disableNotification, false);
+  return {
+    ...(botToken ? { botToken } : {}),
+    ...(chatId ? { chatId } : {}),
+    ...(apiBaseUrl ? { apiBaseUrl } : {}),
+    ...(disableNotification ? { disableNotification } : {}),
+  };
+}
+
 export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
   const root = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const budgets =
@@ -270,11 +354,20 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
     typeof root.actionPolicy === "object" && root.actionPolicy !== null
       ? (root.actionPolicy as Record<string, unknown>)
       : {};
+  const notifications =
+    typeof root.notifications === "object" && root.notifications !== null
+      ? (root.notifications as Record<string, unknown>)
+      : {};
+  const autonomousStart =
+    typeof notifications.autonomousStart === "object" && notifications.autonomousStart !== null
+      ? (notifications.autonomousStart as Record<string, unknown>)
+      : {};
   const activeWindow = activeWindowOrUndefined(actionPolicy.activeWindow);
   const activeHours =
     actionPolicy.activeHours === "configured-window" && activeWindow
       ? "configured-window"
       : DEFAULT_CURIOSITY_CONFIG.actionPolicy.activeHours;
+  const autonomousStartTelegram = telegramNotificationOrUndefined(autonomousStart.telegram);
 
   return {
     budgets: {
@@ -418,6 +511,28 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
           : DEFAULT_CURIOSITY_CONFIG.actionPolicy.disagreementFallback,
       activeHours,
       ...(activeHours === "configured-window" ? { activeWindow } : {}),
+    },
+    notifications: {
+      autonomousStart: {
+        enabled: booleanOrDefault(
+          autonomousStart.enabled,
+          DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.enabled,
+        ),
+        provider:
+          autonomousStart.provider === "telegram"
+            ? "telegram"
+            : DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.provider,
+        minIntervalMinutes: numberOrDefault(
+          autonomousStart.minIntervalMinutes,
+          DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.minIntervalMinutes,
+          { min: 0 },
+        ),
+        includeEvidence: booleanOrDefault(
+          autonomousStart.includeEvidence,
+          DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.includeEvidence,
+        ),
+        ...(autonomousStartTelegram ? { telegram: autonomousStartTelegram } : {}),
+      },
     },
   };
 }

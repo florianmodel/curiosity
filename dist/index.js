@@ -130,6 +130,11 @@ export default definePluginEntry({
                         agentId: ctx.agentId,
                         selectedAt: Date.now(),
                     });
+                    await manager.notifyAutonomousStart({
+                        runId: ctx.runId,
+                        agentId: ctx.agentId,
+                        goal: decision.goal,
+                    });
                     return {
                         prependContext: renderAutonomousGoalPrompt({
                             goal: decision.goal,
