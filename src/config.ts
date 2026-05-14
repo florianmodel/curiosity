@@ -17,6 +17,7 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     externalActionsPerHour: 1,
   },
   goalSources: {
+    bootstrapExploration: true,
     unresolvedUserAsks: true,
     staleOpenQuestions: true,
     failedToolAttempts: true,
@@ -88,6 +89,10 @@ export const curiosityPluginConfigSchemaJson = {
         lowCoverageSurfaces: { type: "boolean" },
         skillOpportunities: { type: "boolean" },
         externalFollowUps: { type: "boolean" },
+        bootstrapExploration: {
+          type: "boolean",
+          description: "Allow curiosity to create a first bounded orientation goal when it has no prior observations.",
+        },
       },
     },
     ensembleWeights: {
@@ -393,6 +398,10 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
       ),
     },
     goalSources: {
+      bootstrapExploration: booleanOrDefault(
+        goalSources.bootstrapExploration,
+        DEFAULT_CURIOSITY_CONFIG.goalSources.bootstrapExploration,
+      ),
       unresolvedUserAsks: booleanOrDefault(
         goalSources.unresolvedUserAsks,
         DEFAULT_CURIOSITY_CONFIG.goalSources.unresolvedUserAsks,

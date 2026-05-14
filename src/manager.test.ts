@@ -25,6 +25,7 @@ afterEach(async () => {
 });
 
 const NO_GOAL_SOURCES: GoalSourcesConfig = {
+  bootstrapExploration: false,
   unresolvedUserAsks: false,
   staleOpenQuestions: false,
   failedToolAttempts: false,
@@ -116,6 +117,60 @@ async function createManager(configOverrides: CuriosityConfigOverrides = {}) {
 }
 
 describe("CuriosityManager", () => {
+  it("selects a bootstrap goal from a completely empty curiosity state", async () => {
+    const manager = await createManager({
+      thresholds: { act: 0.6 },
+    });
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-bootstrap",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(true);
+    if (decision.selected) {
+      expect(decision.goal.source).toBe("bootstrap_exploration");
+      expect(decision.goal.targetSurface).toBe("workspace");
+      expect(decision.goal.risk).toBeLessThan(0.1);
+    }
+  });
+
+  it("does not create bootstrap goals after curiosity has prior outcomes", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: { ...NO_GOAL_SOURCES, bootstrapExploration: true },
+      thresholds: { act: 0.6 },
+    });
+    const first = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-bootstrap",
+      trigger: "heartbeat",
+    });
+    expect(first.selected).toBe(true);
+    if (!first.selected) {
+      return;
+    }
+    await manager.finalizeAutonomousRun({
+      runId: "run-bootstrap",
+      goalId: first.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: true,
+    });
+
+    const second = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-after-bootstrap",
+      trigger: "heartbeat",
+    });
+
+    expect(second.selected).toBe(false);
+    if (!second.selected) {
+      expect(second.reason).toBe("no_candidates");
+    }
+  });
+
   it("selects a goal from a recent unresolved user ask", async () => {
     const manager = await createManager();
     await manager.recordObservation({

@@ -822,6 +822,43 @@ export class CuriosityManager {
     return candidates;
   }
 
+  private buildBootstrapCandidates(params: {
+    observations: ObservationRecord[];
+    openGoals: GoalRecord[];
+    recentCompleted: GoalRecord[];
+  }): CandidateGoal[] {
+    if (!this.config.goalSources.bootstrapExploration) {
+      return [];
+    }
+    if (
+      params.observations.length > 0 ||
+      params.openGoals.length > 0 ||
+      params.recentCompleted.length > 0
+    ) {
+      return [];
+    }
+    return [
+      {
+        source: "bootstrap_exploration",
+        title: "Bootstrap curiosity from an empty state",
+        evidence: [
+          "No recent observations, open goals, or prior curiosity outcomes exist for this workspace.",
+          "The agent should choose its first clue from the local OpenClaw/workspace state, not from a user-supplied topic.",
+        ],
+        proposedAction:
+          "Perform one bounded orientation pass over local workspace and OpenClaw state, identify a surprising or underexplored next clue, record what was learned, and stop before taking external action.",
+        targetSurface: "workspace",
+        estimatedCost: 220,
+        risk: 0.04,
+        keywords: extractKeywords("bootstrap empty state orientation workspace openclaw curiosity first clue"),
+        metadata: {
+          emptyState: true,
+          externalActionsAllowed: false,
+        },
+      },
+    ];
+  }
+
   private async buildCandidates(params: {
     agentId: string;
     observations: ObservationRecord[];
@@ -834,6 +871,14 @@ export class CuriosityManager {
     const toolNames = params.observations
       .map((observation) => observation.toolName)
       .filter((toolName): toolName is string => Boolean(toolName));
+
+    candidates.push(
+      ...this.buildBootstrapCandidates({
+        observations: params.observations,
+        openGoals: params.openGoals,
+        recentCompleted: params.recentCompleted,
+      }),
+    );
 
     if (this.config.boredom.enabled && params.boredom.level > 0) {
       const idleMinutes = Math.round(params.boredom.idleMinutes * 10) / 10;

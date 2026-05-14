@@ -115,6 +115,9 @@ function computeUncertainty(candidate) {
     if (candidate.source === "unresolved_user_ask") {
         score += 0.5;
     }
+    if (candidate.source === "bootstrap_exploration") {
+        score += 0.35;
+    }
     if (candidate.source === "failed_tool_attempt") {
         score += 0.4;
     }
@@ -138,6 +141,7 @@ function computeImpact(candidate, recentToolNames) {
         ? 0.15
         : 0;
     const sourceWeights = {
+        bootstrap_exploration: 0.68,
         unresolved_user_ask: 0.9,
         stale_open_question: 0.72,
         failed_tool_attempt: 0.84,
@@ -153,6 +157,9 @@ function computeCurriculum(candidate) {
     let score = 0.25;
     if (candidate.source === "skill_opportunity") {
         score += 0.55;
+    }
+    if (candidate.source === "bootstrap_exploration") {
+        score += 0.35;
     }
     if (candidate.source === "failed_tool_attempt") {
         score += 0.2;
