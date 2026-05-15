@@ -22,40 +22,23 @@ function clampOutput(text, maxChars = 4000) {
     return `${text.slice(0, 1000)}\n...[truncated]...\n${text.slice(-maxChars + 1018)}`;
 }
 function renderGoalRunMessage(goal) {
-    const allowsWeb = goal.targetSurface === "web" ||
-        goal.source === "self_directed_exploration" ||
-        goal.source === "bootstrap_exploration";
-    const allowsMaking = goal.targetSurface === "workspace" ||
-        goal.source === "self_directed_exploration" ||
-        goal.source === "bootstrap_exploration";
     return [
         "Run this autonomous curiosity goal as one bounded self-directed investigation.",
         "",
         `Goal ID: ${goal.goalId}`,
-        `Title: ${goal.title}`,
+        `Drive signal: ${goal.title}`,
         `Source: ${goal.source}`,
         `Target surface: ${goal.targetSurface}`,
-        `Proposed action: ${goal.proposedAction}`,
         "",
         "Evidence:",
         ...goal.evidence.map((item) => `- ${item}`),
         "",
         "Autonomy brief:",
-        "- Be genuinely curious. Do something more interesting than checking status when the goal calls for it.",
-        "- Do one bounded pass and stop. Prefer a finished small thing over a sprawling plan.",
-        ...(allowsWeb
-            ? [
-                "- You may browse the public web for research. Use a few reputable sources and include links in the summary.",
-                "- Do not log in, buy anything, message people, publish, or mutate external systems.",
-            ]
-            : []),
-        ...(allowsMaking
-            ? [
-                "- You may create or edit a small local artifact if useful: a note, poem, prototype, script, or demo.",
-                "- Keep local changes reversible and explain exactly what file you touched.",
-            ]
-            : []),
-        "- End with what you did, what surprised you, where the artifact or sources are, and the next clue.",
+        "- Author the actual intention yourself from the available context.",
+        "- Take at least one low-risk sensing or inspection step through an allowed tool before concluding.",
+        "- If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
+        "- Do one bounded pass and stop.",
+        "- End with what you did, what surprised you, and the next clue.",
     ].join("\n");
 }
 async function runOpenClawAgent(params) {

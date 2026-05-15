@@ -12,6 +12,11 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     registerCli: (registrar: unknown, opts?: unknown) => void;
     registerService: (service: unknown) => void;
     on: (name: string, handler: (...args: any[]) => unknown) => void;
+    runtime?: {
+      system?: {
+        requestHeartbeatNow?: (params?: { reason?: string; agentId?: string }) => void;
+      };
+    };
   };
 
   export type OpenClawPluginService = {

@@ -15,7 +15,6 @@ export const DEFAULT_CURIOSITY_CONFIG = {
     },
     goalSources: {
         bootstrapExploration: true,
-        selfDirectedExploration: true,
         unresolvedUserAsks: true,
         staleOpenQuestions: true,
         failedToolAttempts: true,
@@ -40,6 +39,10 @@ export const DEFAULT_CURIOSITY_CONFIG = {
         idleStartMinutes: 5,
         saturationMinutes: 60,
         maxScoreBonus: 0.35,
+        wakeLevel: 0.65,
+        wakeCheckMinutes: 1,
+        wakeMinIntervalMinutes: 5,
+        satiationMinutes: 20,
     },
     shadowModels: [...DEFAULT_SHADOW_MODELS],
     logging: {
@@ -90,10 +93,6 @@ export const curiosityPluginConfigSchemaJson = {
                     type: "boolean",
                     description: "Allow curiosity to create a first bounded orientation goal when it has no prior observations.",
                 },
-                selfDirectedExploration: {
-                    type: "boolean",
-                    description: "Allow curiosity to invent playful web, creative, or tiny-build goals without a user-supplied topic.",
-                },
             },
         },
         ensembleWeights: {
@@ -139,6 +138,27 @@ export const curiosityPluginConfigSchemaJson = {
                     minimum: 0,
                     maximum: 1,
                     description: "Maximum active score bonus contributed by full boredom.",
+                },
+                wakeLevel: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: 1,
+                    description: "Boredom level that can wake a self-authored curiosity run.",
+                },
+                wakeCheckMinutes: {
+                    type: "number",
+                    minimum: 0.1,
+                    description: "Polling interval for checking whether boredom should wake the agent.",
+                },
+                wakeMinIntervalMinutes: {
+                    type: "number",
+                    minimum: 0,
+                    description: "Minimum minutes between boredom-triggered wake requests.",
+                },
+                satiationMinutes: {
+                    type: "number",
+                    minimum: 0,
+                    description: "Minutes after an autonomous curiosity run during which boredom is suppressed.",
                 },
             },
         },
@@ -359,7 +379,6 @@ export function resolveCuriosityConfig(raw) {
         },
         goalSources: {
             bootstrapExploration: booleanOrDefault(goalSources.bootstrapExploration, DEFAULT_CURIOSITY_CONFIG.goalSources.bootstrapExploration),
-            selfDirectedExploration: booleanOrDefault(goalSources.selfDirectedExploration, DEFAULT_CURIOSITY_CONFIG.goalSources.selfDirectedExploration),
             unresolvedUserAsks: booleanOrDefault(goalSources.unresolvedUserAsks, DEFAULT_CURIOSITY_CONFIG.goalSources.unresolvedUserAsks),
             staleOpenQuestions: booleanOrDefault(goalSources.staleOpenQuestions, DEFAULT_CURIOSITY_CONFIG.goalSources.staleOpenQuestions),
             failedToolAttempts: booleanOrDefault(goalSources.failedToolAttempts, DEFAULT_CURIOSITY_CONFIG.goalSources.failedToolAttempts),
@@ -393,6 +412,10 @@ export function resolveCuriosityConfig(raw) {
                 idleStartMinutes,
                 saturationMinutes,
                 maxScoreBonus: numberOrDefault(boredom.maxScoreBonus, DEFAULT_CURIOSITY_CONFIG.boredom.maxScoreBonus, { min: 0, max: 1 }),
+                wakeLevel: numberOrDefault(boredom.wakeLevel, DEFAULT_CURIOSITY_CONFIG.boredom.wakeLevel, { min: 0, max: 1 }),
+                wakeCheckMinutes: numberOrDefault(boredom.wakeCheckMinutes, DEFAULT_CURIOSITY_CONFIG.boredom.wakeCheckMinutes, { min: 0.1 }),
+                wakeMinIntervalMinutes: numberOrDefault(boredom.wakeMinIntervalMinutes, DEFAULT_CURIOSITY_CONFIG.boredom.wakeMinIntervalMinutes, { min: 0 }),
+                satiationMinutes: numberOrDefault(boredom.satiationMinutes, DEFAULT_CURIOSITY_CONFIG.boredom.satiationMinutes, { min: 0 }),
             };
         })(),
         shadowModels: stringArrayOrDefault(root.shadowModels, DEFAULT_CURIOSITY_CONFIG.shadowModels),

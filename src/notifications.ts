@@ -41,12 +41,6 @@ export function renderAutonomousStartNotice(params: {
   includeEvidence: boolean;
 }): string {
   const score = params.goal.scoresByModel.active_ensemble.toFixed(3);
-  const scope =
-    params.goal.targetSurface === "web"
-      ? "I may browse the public web, collect a few sources, and stop before posting or contacting anyone."
-      : params.goal.source === "self_directed_exploration" || params.goal.source === "bootstrap_exploration"
-        ? "I may inspect local files and create one small, reversible artifact if that is the useful move."
-        : "I will keep this bounded and stop after one pass.";
   const evidence = params.includeEvidence
     ? params.goal.evidence
         .slice(0, 2)
@@ -56,9 +50,8 @@ export function renderAutonomousStartNotice(params: {
   return [
     "<b>Curiosity is starting a run</b>",
     "",
-    `<b>What I am trying</b>: ${escapeHtml(clampLine(params.goal.title, 220))}`,
-    `<b>Plan</b>: ${escapeHtml(clampLine(params.goal.proposedAction, 420))}`,
-    `<b>Scope</b>: ${escapeHtml(scope)}`,
+    `<b>Drive signal</b>: ${escapeHtml(clampLine(params.goal.title, 220))}`,
+    "<b>Scope</b>: The run must author its own bounded intention, use only allowed surfaces, and stop after one pass.",
     ...(evidence ? [`<b>Why now</b>:${evidence}`] : []),
     "",
     `<b>Details</b>: agent <code>${escapeHtml(params.agentId)}</code>, score <code>${score}</code>, surface <code>${escapeHtml(params.goal.targetSurface)}</code>`,

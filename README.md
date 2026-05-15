@@ -4,10 +4,10 @@
 
 ## What it does
 
-- Builds explicit candidate goals from recent observations
+- Tracks drive signals from recent observations
 - Scores them with several intrinsic-motivation-inspired heuristics
 - Selects one high-value goal on heartbeat runs when the score clears a threshold
-- Adds an idle-time boredom drive so prolonged inactivity eventually creates/boosts a bounded workspace goal
+- Adds an idle-time boredom drive that can wake a self-authored run
 - Optionally sends a Telegram notice when an autonomous curiosity run starts
 - Logs every scored goal, selected goal, external action, and token budget event
 - Exposes queue/inspect/compare/pause/resume surfaces through both a tool and CLI
@@ -75,7 +75,11 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
             "enabled": true,
             "idleStartMinutes": 5,
             "saturationMinutes": 60,
-            "maxScoreBonus": 0.35
+            "maxScoreBonus": 0.35,
+            "wakeLevel": 0.65,
+            "wakeCheckMinutes": 1,
+            "wakeMinIntervalMinutes": 5,
+            "satiationMinutes": 20
           },
           "actionPolicy": {
             "allowExternalActions": true,
@@ -114,10 +118,10 @@ openclaw curiosity resume
 
 ## Notes
 
-- Heartbeat is the primary self-initiation trigger in v1.
+- Heartbeat remains a selection surface, and boredom can proactively request a heartbeat once the drive crosses `boredom.wakeLevel`.
 - To limit curiosity selection by time of day, set `actionPolicy.activeHours` to `configured-window` and provide `actionPolicy.activeWindow` with `start`, `end`, and optional `timeZone` values.
 - To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The notice is sent only when a heartbeat selects an autonomous goal.
-- Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, and contributes up to `boredom.maxScoreBonus` to candidate scores. Once active, it also creates a safe workspace goal if no normal candidate exists.
-- Candidate goals are derived from user asks, stale goals, failed tools, new entities, low-coverage surfaces, reusable skill patterns, and follow-ups from earlier autonomous runs.
+- Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
+- Curiosity prompts carry drive signals and constraints; the agent must author its own bounded intention from inside the run.
 - The plugin only adds guardrails and autonomous-goal context. It does not bypass existing OpenClaw approvals or safety controls.
 - The current implementation is heuristic and logging-heavy by design, so model comparisons are visible before any future learned policy is attempted.

@@ -41,10 +41,6 @@
             "type": "boolean",
             "description": "Allow curiosity to create a first bounded orientation goal when it has no prior observations."
           },
-          "selfDirectedExploration": {
-            "type": "boolean",
-            "description": "Allow curiosity to invent playful web, creative, or tiny-build goals without a user-supplied topic."
-          },
           "unresolvedUserAsks": {
             "type": "boolean"
           },
@@ -141,6 +137,27 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Maximum active score bonus contributed by full boredom."
+          },
+          "wakeLevel": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Boredom level that can wake a self-authored curiosity run."
+          },
+          "wakeCheckMinutes": {
+            "type": "number",
+            "minimum": 0.1,
+            "description": "Polling interval for checking whether boredom should wake the agent."
+          },
+          "wakeMinIntervalMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minimum minutes between boredom-triggered wake requests."
+          },
+          "satiationMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minutes after an autonomous curiosity run during which boredom is suppressed."
           }
         }
       },
@@ -280,7 +297,7 @@
     },
     "goalSources": {
       "label": "Goal Sources",
-      "help": "Candidate-goal families that feed the curiosity scorer."
+      "help": "Observation-derived signals that feed the curiosity scorer."
     },
     "ensembleWeights": {
       "label": "Ensemble Weights",
@@ -296,7 +313,7 @@
     },
     "boredom": {
       "label": "Boredom Drive",
-      "help": "Idle-time inverse reward that grows until the agent self-initiates a bounded action."
+      "help": "Idle-time drive that can wake a self-authored curiosity run."
     },
     "logging": {
       "label": "Logging",

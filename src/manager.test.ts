@@ -26,7 +26,6 @@ afterEach(async () => {
 
 const NO_GOAL_SOURCES: GoalSourcesConfig = {
   bootstrapExploration: false,
-  selfDirectedExploration: false,
   unresolvedUserAsks: false,
   staleOpenQuestions: false,
   failedToolAttempts: false,
@@ -118,10 +117,16 @@ async function createManager(configOverrides: CuriosityConfigOverrides = {}) {
 }
 
 describe("CuriosityManager", () => {
-  it("selects a bootstrap goal from a completely empty curiosity state", async () => {
+  it("selects a self-authored goal from an empty state after boredom matures", async () => {
     const manager = await createManager({
       thresholds: { act: 0.6 },
+      boredom: {
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+      },
     });
+    await manager.getBoredomState(Date.now() - 3 * 60 * 1000);
 
     const decision = await manager.selectGoalForRun({
       agentId: "main",
@@ -131,7 +136,7 @@ describe("CuriosityManager", () => {
 
     expect(decision.selected).toBe(true);
     if (decision.selected) {
-      expect(decision.goal.source).toBe("bootstrap_exploration");
+      expect(decision.goal.source).toBe("self_authored_intention");
       expect(decision.goal.targetSurface).toBe("workspace");
       expect(decision.goal.risk).toBeLessThan(0.1);
     }
@@ -142,7 +147,13 @@ describe("CuriosityManager", () => {
       budgets: { autonomousRunsPerDay: 3 },
       goalSources: { ...NO_GOAL_SOURCES, bootstrapExploration: true },
       thresholds: { act: 0.6 },
+      boredom: {
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+      },
     });
+    await manager.getBoredomState(Date.now() - 3 * 60 * 1000);
     const first = await manager.selectGoalForRun({
       agentId: "main",
       runId: "run-bootstrap",
@@ -152,6 +163,7 @@ describe("CuriosityManager", () => {
     if (!first.selected) {
       return;
     }
+    await manager.canUseTool("run-bootstrap", "read");
     await manager.finalizeAutonomousRun({
       runId: "run-bootstrap",
       goalId: first.goal.goalId,
@@ -177,7 +189,7 @@ describe("CuriosityManager", () => {
     await manager.recordObservation({
       kind: "message_received",
       channelId: "telegram",
-      content: "Can you investigate the flaky deploy pipeline?",
+      content: "Can you resolve the pending uncertainty?",
     });
 
     const decision = await manager.selectGoalForRun({
@@ -197,7 +209,7 @@ describe("CuriosityManager", () => {
     const manager = await createManager();
     await manager.recordObservation({
       kind: "message_received",
-      content: "Can you investigate the flaky deploy pipeline?",
+      content: "Can you resolve the pending uncertainty?",
     });
 
     const first = await manager.selectGoalForRun({
@@ -227,6 +239,7 @@ describe("CuriosityManager", () => {
         idleStartMinutes: 1,
         saturationMinutes: 2,
         maxScoreBonus: 0.35,
+        wakeLevel: 0.6,
       },
     });
     await manager.recordObservation({
@@ -243,7 +256,7 @@ describe("CuriosityManager", () => {
 
     expect(decision.selected).toBe(true);
     if (decision.selected) {
-      expect(decision.goal.source).toBe("idle_boredom");
+      expect(decision.goal.source).toBe("self_authored_intention");
       expect(decision.goal.targetSurface).toBe("workspace");
       expect(decision.goal.scoresByModel.boredom_drive).toBeGreaterThan(0.9);
     }
@@ -280,6 +293,95 @@ describe("CuriosityManager", () => {
     expect(snapshot.boredom.level).toBe(0);
   });
 
+  it("does not let heartbeat acknowledgements reset boredom", async () => {
+    const manager = await createManager({
+      goalSources: NO_GOAL_SOURCES,
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "External activity anchor.",
+    });
+    expect((await manager.getBoredomState()).level).toBeGreaterThan(0.9);
+
+    await manager.recordObservation({
+      kind: "assistant_output",
+      content: "HEARTBEAT_OK",
+      metadata: { trigger: "heartbeat" },
+    });
+
+    expect((await manager.getBoredomState()).level).toBeGreaterThan(0.9);
+  });
+
+  it("requests boredom wake only after the drive crosses threshold and interval", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+        wakeMinIntervalMinutes: 10,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "External activity anchor.",
+    });
+
+    const ready = await manager.shouldRequestBoredomWake();
+    expect(ready.shouldWake).toBe(true);
+    await manager.markBoredomWakeRequested({
+      runReason: "curiosity-boredom",
+      agentId: "main",
+      boredom: ready.boredom,
+    });
+
+    const throttled = await manager.shouldRequestBoredomWake();
+    expect(throttled.shouldWake).toBe(false);
+    expect(throttled.reason).toBe("wake_interval_active");
+  });
+
+  it("marks autonomous runs failed when they end without a sensing step", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-without-sensing",
+      trigger: "heartbeat",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+
+    await manager.finalizeAutonomousRun({
+      runId: "run-without-sensing",
+      goalId: decision.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: true,
+    });
+    const inspected = await manager.inspectIdentifier(decision.goal.goalId);
+    const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
+
+    expect(goal.status).toBe("failed");
+    expect(goal.outcome?.minimumActionSatisfied).toBe(false);
+  });
+
   it("can pause and resume selection", async () => {
     const manager = await createManager();
     await manager.setPaused(true);
@@ -292,7 +394,7 @@ describe("CuriosityManager", () => {
     const manager = await createManager();
     await manager.recordObservation({
       kind: "message_received",
-      content: "Can you investigate the flaky deploy pipeline?",
+      content: "Can you resolve the pending uncertainty?",
     });
 
     const decision = await manager.selectGoalForRun({
@@ -361,7 +463,7 @@ describe("CuriosityManager", () => {
     await manager.recordObservation({
       kind: "message_received",
       channelId: "telegram",
-      content: "Can you investigate the flaky deploy pipeline?",
+      content: "Can you resolve the pending uncertainty?",
     });
     const decision = await manager.selectGoalForRun({
       agentId: "main",
@@ -377,7 +479,7 @@ describe("CuriosityManager", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       expect(body.chat_id).toBe("12345");
       expect(String(body.text)).toContain("Curiosity is starting a run");
-      expect(String(body.text)).toContain("flaky deploy pipeline");
+      expect(String(body.text)).toContain("pending uncertainty");
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
 
