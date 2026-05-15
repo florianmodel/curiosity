@@ -134,14 +134,14 @@ function computeReachability(candidate: CandidateGoal, observations: Observation
 function computeUncertainty(candidate: CandidateGoal): number {
   const text = `${candidate.title} ${candidate.evidence.join(" ")}`.toLowerCase();
   let score = 0.2;
+  if (candidate.source === "self_authored_intention") {
+    score += 0.45;
+  }
   if (candidate.source === "unresolved_user_ask") {
     score += 0.5;
   }
   if (candidate.source === "bootstrap_exploration") {
     score += 0.35;
-  }
-  if (candidate.source === "self_directed_exploration") {
-    score += 0.45;
   }
   if (candidate.source === "failed_tool_attempt") {
     score += 0.4;
@@ -168,8 +168,8 @@ function computeImpact(candidate: CandidateGoal, recentToolNames: string[]): num
       ? 0.15
       : 0;
   const sourceWeights: Record<CandidateGoal["source"], number> = {
+    self_authored_intention: 0.8,
     bootstrap_exploration: 0.68,
-    self_directed_exploration: 0.82,
     unresolved_user_ask: 0.9,
     stale_open_question: 0.72,
     failed_tool_attempt: 0.84,
@@ -184,13 +184,13 @@ function computeImpact(candidate: CandidateGoal, recentToolNames: string[]): num
 
 function computeCurriculum(candidate: CandidateGoal): number {
   let score = 0.25;
+  if (candidate.source === "self_authored_intention") {
+    score += 0.45;
+  }
   if (candidate.source === "skill_opportunity") {
     score += 0.55;
   }
   if (candidate.source === "bootstrap_exploration") {
-    score += 0.35;
-  }
-  if (candidate.source === "self_directed_exploration") {
     score += 0.35;
   }
   if (candidate.source === "failed_tool_attempt") {

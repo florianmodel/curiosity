@@ -4,15 +4,14 @@ function bulletList(items) {
 export function renderAutonomousGoalPrompt(params) {
     const { goal, budgetUsage, threshold } = params;
     return [
-        "## Autonomous Goal",
-        "This is a heartbeat-triggered self-initiated follow-up.",
+        "## Self-Authored Curiosity Run",
+        "This heartbeat is available for one bounded internally chosen curiosity move.",
         `Goal ID: ${goal.goalId}`,
         `Policy: ${goal.selectedByPolicy}`,
         `Act threshold: ${threshold.toFixed(2)}`,
-        `Title: ${goal.title}`,
-        `Target surface: ${goal.targetSurface}`,
-        `Proposed action: ${goal.proposedAction}`,
-        "Evidence:",
+        `Drive signal: ${goal.title}`,
+        `Available surface: ${goal.targetSurface}`,
+        "Current evidence:",
         bulletList(goal.evidence),
         "Score vector:",
         bulletList([
@@ -25,7 +24,10 @@ export function renderAutonomousGoalPrompt(params) {
         ]),
         "Constraints:",
         bulletList([
-            "Pursue at most this one autonomous goal in this run.",
+            "Author the actual intention yourself from the available context; this prompt is only a drive signal.",
+            "Take at least one low-risk sensing or inspection step through an allowed tool before concluding.",
+            "If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
+            "Pursue at most one autonomous intention in this run.",
             "Stay within existing OpenClaw safety, approvals, and tool policies.",
             `Remaining autonomous budgets are approximate: runs24h=${budgetUsage.autonomousRuns24h}, tokens24h=${budgetUsage.autonomousTokens24h}, external24h=${budgetUsage.externalActions24h}, external1h=${budgetUsage.externalActions1h}.`,
             "If you cannot make meaningful progress, reply HEARTBEAT_OK.",

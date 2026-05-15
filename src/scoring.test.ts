@@ -8,20 +8,21 @@ const observations = [
     id: 1,
     kind: "message_received",
     createdAt: Date.now(),
-    content: "Can you investigate the flaky deploy pipeline?",
-    metadata: { keywords: ["investigate", "flaky", "deploy", "pipeline"] },
+    content: "Can you resolve the pending uncertainty?",
+    metadata: { keywords: ["resolve", "pending", "uncertainty"] },
   },
 ] as const;
 
 const baseCandidate: CandidateGoal = {
   source: "unresolved_user_ask",
-  title: "Resolve user ask: investigate flaky deploy pipeline",
-  evidence: ["Can you investigate the flaky deploy pipeline?"],
-  proposedAction: "Investigate the ask and prepare a concrete follow-up.",
+  title: "Resolve user ask: pending uncertainty",
+  evidence: ["Can you resolve the pending uncertainty?"],
+  proposedAction:
+    "Author one bounded intention from the available context, take the smallest useful sensing step, record what changed, and stop.",
   targetSurface: "workspace",
   estimatedCost: 300,
   risk: 0.1,
-  keywords: ["flaky", "deploy", "pipeline"],
+  keywords: ["pending", "uncertainty"],
   metadata: {},
 };
 

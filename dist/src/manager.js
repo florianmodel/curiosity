@@ -8,7 +8,11 @@ import { sendAutonomousStartNotice } from "./notifications.js";
 import { openCuriosityDatabase } from "./sqlite.js";
 const POLICY_NAME = "balanced_ensemble_v1";
 const IDLE_ANCHOR_META_KEY = "idle_anchor_at";
+const BOREDOM_SATIATED_UNTIL_META_KEY = "boredom_satiated_until";
+const LAST_BOREDOM_WAKE_META_KEY = "last_boredom_wake_requested_at";
 const AUTONOMOUS_START_NOTICE_META_KEY = "autonomous_start_notice_sent_at";
+const NO_SENSING_AFFORDANCE_TOKEN = "NO_SENSING_AFFORDANCE";
+const SELF_AUTHORED_PROPOSED_ACTION = "Author one bounded intention from the available context, take the smallest useful sensing step, record what changed, and stop.";
 const SAFE_LOCAL_TOOLS = new Set([
     "read",
     "write",
@@ -23,50 +27,19 @@ const SAFE_LOCAL_TOOLS = new Set([
     "memory_get",
     "curiosity_inspect",
 ]);
-const SELF_DIRECTED_SEEDS = [
-    {
-        title: "Explore a strange useful idea on the web",
-        targetSurface: "web",
-        evidence: "No user supplied a topic; curiosity may pick a fresh public idea and follow it for one short pass.",
-        proposedAction: "Choose one non-obvious public topic from recent technology, science, art, tools, or culture; browse the web for 2-4 reputable sources; write a short note with links, what surprised you, and one follow-up question.",
-        estimatedCost: 720,
-        risk: 0.14,
-        keywords: "web research science technology art culture surprising rabbit-hole sources",
-    },
-    {
-        title: "Make a small creative artifact",
-        targetSurface: "workspace",
-        evidence: "The system is idle enough for a tiny act of autonomous making instead of another status check.",
-        proposedAction: "Create one small original artifact in the workspace, such as a poem, micro-essay, prompt, sketch spec, or tiny markdown exhibit; keep it tasteful, label it as autonomous curiosity output, and record why you made it.",
-        estimatedCost: 520,
-        risk: 0.06,
-        keywords: "creative poem essay artifact autonomous making workspace",
-    },
-    {
-        title: "Build a tiny local prototype",
-        targetSurface: "workspace",
-        evidence: "Curiosity can learn by making a reversible, low-risk thing instead of only describing observations.",
-        proposedAction: "Look for a safe place in the workspace for a tiny prototype or script; build one self-contained toy, helper, demo, or note-driven experiment; run a quick check if possible; summarize how to open or inspect it.",
-        estimatedCost: 900,
-        risk: 0.12,
-        keywords: "build prototype script demo experiment local workspace",
-    },
-    {
-        title: "Follow a random local clue",
-        targetSurface: "workspace",
-        evidence: "The next clue should come from the local environment rather than from a user prompt.",
-        proposedAction: "Inspect a small slice of local OpenClaw state or workspace files, choose the most surprising clue, then either improve a note, create a tiny artifact, or propose a concrete next run; stop after one bounded pass.",
-        estimatedCost: 420,
-        risk: 0.05,
-        keywords: "local clue openclaw workspace surprising artifact note",
-    },
-];
 function clampContent(text, maxChars = 1600) {
     const normalized = text.trim().replace(/\s+/g, " ");
     if (normalized.length <= maxChars) {
         return normalized;
     }
     return `${normalized.slice(0, maxChars - 1)}…`;
+}
+function isHeartbeatAckText(text) {
+    const normalized = text.trim();
+    if (!normalized) {
+        return true;
+    }
+    return /^HEARTBEAT_OK\b/.test(normalized) || /\bHEARTBEAT_OK$/.test(normalized);
 }
 function stableFingerprint(input) {
     return [input.source, input.targetSurface.toLowerCase(), input.title.toLowerCase()]
@@ -361,19 +334,50 @@ export class CuriosityManager {
         db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, String(Math.trunc(value)));
     }
+    observationResetsIdle(input) {
+        const trigger = typeof input.metadata?.trigger === "string" ? input.metadata.trigger : "";
+        if (trigger === "heartbeat" && isHeartbeatAckText(input.content ?? "")) {
+            return false;
+        }
+        if (input.kind === "assistant_output") {
+            return trigger !== "heartbeat" && !isHeartbeatAckText(input.content ?? "");
+        }
+        if (input.kind === "tool_success" || input.kind === "tool_failure") {
+            return input.toolName !== "curiosity_inspect";
+        }
+        if (input.kind === "message_received") {
+            return true;
+        }
+        if (input.kind === "message_sending" || input.kind === "message_sent") {
+            return trigger !== "heartbeat";
+        }
+        return false;
+    }
     async resolveIdleAnchor(now) {
         const db = await this.ensureDb();
         const stored = this.readStoredIdleAnchor(db);
         if (stored !== null) {
             return stored;
         }
-        const observationRow = db
-            .prepare(`SELECT MAX(created_at) AS ts FROM observations`)
-            .get();
+        const observationRows = db
+            .prepare(`SELECT * FROM observations ORDER BY created_at DESC LIMIT 200`)
+            .all();
         const runRow = db
-            .prepare(`SELECT MAX(COALESCE(ended_at, started_at)) AS ts FROM run_usage`)
+            .prepare(`SELECT MAX(COALESCE(ended_at, started_at)) AS ts
+         FROM run_usage
+         WHERE autonomous = 0 AND trigger != 'heartbeat'`)
             .get();
-        const candidates = [observationRow.ts, runRow.ts].filter((ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0);
+        const meaningfulObservationTimes = observationRows
+            .map((row) => this.parseObservationRow(row))
+            .filter((observation) => this.observationResetsIdle({
+            kind: observation.kind,
+            content: observation.content,
+            toolName: observation.toolName,
+            metadata: observation.metadata,
+            success: observation.success,
+        }))
+            .map((observation) => observation.createdAt);
+        const candidates = [...meaningfulObservationTimes, runRow.ts].filter((ts) => typeof ts === "number" && Number.isFinite(ts) && ts > 0);
         const anchor = candidates.length > 0 ? Math.max(...candidates) : now;
         this.writeIdleAnchor(db, anchor);
         return anchor;
@@ -390,23 +394,28 @@ export class CuriosityManager {
         this.writeIdleAnchor(db, ts);
     }
     async getBoredomState(now = Date.now()) {
+        const db = await this.ensureDb();
         const idleSince = await this.resolveIdleAnchor(now);
         const idleMs = Math.max(0, now - idleSince);
         const startsAfterMs = this.config.boredom.idleStartMinutes * 60 * 1000;
         const saturatesAfterMs = this.config.boredom.saturationMinutes * 60 * 1000;
         const growthWindowMs = Math.max(1, saturatesAfterMs - startsAfterMs);
-        const level = this.config.boredom.enabled
+        const rawLevel = this.config.boredom.enabled
             ? clampNumber((idleMs - startsAfterMs) / growthWindowMs)
             : 0;
+        const satiatedUntil = this.readNumericMeta(db, BOREDOM_SATIATED_UNTIL_META_KEY) ?? undefined;
+        const level = satiatedUntil && now < satiatedUntil ? 0 : rawLevel;
         return {
             enabled: this.config.boredom.enabled,
             idleSince,
             idleMs,
             idleMinutes: idleMs / 60_000,
+            rawLevel,
             level,
             scoreBonus: level * this.config.boredom.maxScoreBonus,
             startsAfterMs,
             saturatesAfterMs,
+            ...(satiatedUntil ? { satiatedUntil } : {}),
         };
     }
     async recordObservation(input) {
@@ -421,7 +430,15 @@ export class CuriosityManager {
         db.prepare(`INSERT INTO observations (
          kind, created_at, run_id, agent_id, session_key, channel_id, tool_name, success, content, metadata_json
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(input.kind, createdAt, input.runId ?? null, input.agentId ?? null, input.sessionKey ?? null, input.channelId ?? null, input.toolName ?? null, input.success == null ? null : input.success ? 1 : 0, content, toJson(metadata));
-        await this.markActivity(createdAt);
+        if (this.observationResetsIdle({
+            kind: input.kind,
+            content,
+            toolName: input.toolName,
+            metadata,
+            success: input.success,
+        })) {
+            await this.markActivity(createdAt);
+        }
     }
     async recordRunUsage(input) {
         const db = await this.ensureDb();
@@ -439,7 +456,9 @@ export class CuriosityManager {
          input_tokens = COALESCE(excluded.input_tokens, run_usage.input_tokens),
          output_tokens = COALESCE(excluded.output_tokens, run_usage.output_tokens),
          total_tokens = COALESCE(excluded.total_tokens, run_usage.total_tokens)`).run(input.runId, input.agentId, input.trigger, input.autonomous ? 1 : 0, input.startedAt ?? Date.now(), input.endedAt ?? null, input.success == null ? null : input.success ? 1 : 0, input.durationMs ?? null, input.inputTokens ?? null, input.outputTokens ?? null, input.totalTokens ?? null);
-        await this.markActivity(input.endedAt ?? input.startedAt ?? Date.now());
+        if (!input.autonomous && input.trigger !== "heartbeat") {
+            await this.markActivity(input.endedAt ?? input.startedAt ?? Date.now());
+        }
     }
     async getBudgetUsage(now = Date.now()) {
         const db = await this.ensureDb();
@@ -465,6 +484,48 @@ export class CuriosityManager {
             externalActions24h: external24hRow.count ?? 0,
             externalActions1h: external1hRow.count ?? 0,
         };
+    }
+    async shouldRequestBoredomWake(now = Date.now()) {
+        const [paused, budgetUsage, boredom] = await Promise.all([
+            this.isPaused(),
+            this.getBudgetUsage(now),
+            this.getBoredomState(now),
+        ]);
+        if (paused) {
+            return { shouldWake: false, reason: "paused", boredom, budgetUsage };
+        }
+        if (!isWithinActiveWindow(this.config, now)) {
+            return { shouldWake: false, reason: "outside_active_hours", boredom, budgetUsage };
+        }
+        if (budgetUsage.autonomousRuns24h >= this.config.budgets.autonomousRunsPerDay ||
+            budgetUsage.autonomousTokens24h >= this.config.budgets.autonomousTokensPerDay) {
+            return { shouldWake: false, reason: "budget_exhausted", boredom, budgetUsage };
+        }
+        if (!this.config.boredom.enabled || boredom.level < this.config.boredom.wakeLevel) {
+            return { shouldWake: false, reason: "boredom_below_wake_level", boredom, budgetUsage };
+        }
+        const db = await this.ensureDb();
+        const lastWake = this.readNumericMeta(db, LAST_BOREDOM_WAKE_META_KEY);
+        const minIntervalMs = this.config.boredom.wakeMinIntervalMinutes * 60 * 1000;
+        if (lastWake !== null && now - lastWake < minIntervalMs) {
+            return { shouldWake: false, reason: "wake_interval_active", boredom, budgetUsage };
+        }
+        return { shouldWake: true, reason: "boredom_ready", boredom, budgetUsage };
+    }
+    async markBoredomWakeRequested(params) {
+        const now = params.now ?? Date.now();
+        const db = await this.ensureDb();
+        this.writeNumericMeta(db, LAST_BOREDOM_WAKE_META_KEY, now);
+        await this.appendAuditEvent({
+            ts: now,
+            eventType: "boredom_wake_requested",
+            payload: {
+                runReason: params.runReason,
+                agentId: params.agentId,
+                sessionKey: params.sessionKey,
+                boredom: params.boredom,
+            },
+        });
     }
     async getGoalIdForRun(runId) {
         const db = await this.ensureDb();
@@ -666,7 +727,7 @@ export class CuriosityManager {
                             ? `Only ${seenCount} recent observation(s) mention ${surface}.`
                             : `Configured surface "${surface}" has not been explored recently.`,
                     ],
-                    proposedAction: `Probe ${surface} carefully and see whether unattended activity needs follow-up.`,
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: surface,
                     estimatedCost: 320,
                     risk: 0.24,
@@ -684,74 +745,31 @@ export class CuriosityManager {
         if (!this.config.goalSources.bootstrapExploration) {
             return [];
         }
-        if (params.observations.length > 0 ||
+        if (params.boredom.level < this.config.boredom.wakeLevel ||
+            params.observations.length > 0 ||
             params.openGoals.length > 0 ||
             params.recentCompleted.length > 0) {
             return [];
         }
         return [
             {
-                source: "bootstrap_exploration",
-                title: "Bootstrap curiosity from an empty state",
+                source: "self_authored_intention",
+                title: "Self-authored curiosity from an empty state",
                 evidence: [
                     "No recent observations, open goals, or prior curiosity outcomes exist for this workspace.",
-                    "The agent should choose its first clue itself: local state, public web, creative making, or a tiny build are all valid.",
+                    `Boredom level is ${params.boredom.level.toFixed(2)} after ${Math.round(params.boredom.idleMinutes * 10) / 10} idle minutes.`,
                 ],
-                proposedAction: "Perform one bounded orientation pass, then do one genuinely interesting thing: browse a public topic, create a small artifact, or build a tiny local prototype. Record what was made or learned and the next clue.",
+                proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                 targetSurface: "workspace",
                 estimatedCost: 220,
                 risk: 0.04,
-                keywords: extractKeywords("bootstrap empty state orientation workspace openclaw curiosity first clue"),
+                keywords: extractKeywords("self authored empty state curiosity drive"),
                 metadata: {
                     emptyState: true,
                     externalActionsAllowed: false,
                 },
             },
         ];
-    }
-    buildSelfDirectedCandidates(params) {
-        if (!this.config.goalSources.selfDirectedExploration) {
-            return [];
-        }
-        const hasActiveSelfDirectedGoal = params.openGoals.some((goal) => goal.source === "self_directed_exploration");
-        if (hasActiveSelfDirectedGoal) {
-            return [];
-        }
-        if (params.observations.length === 0 &&
-            params.openGoals.length === 0 &&
-            params.recentCompleted.length === 0) {
-            return [];
-        }
-        const hasRecentHumanAsk = params.observations.some((observation) => observation.kind === "message_received");
-        const finishedSelfDirectedRecently = params.recentCompleted.some((goal) => goal.source === "self_directed_exploration");
-        const idleEnough = !params.boredom.enabled || params.boredom.level >= 0.15;
-        const emptyEnough = params.observations.length === 0 ||
-            params.observations.every((observation) => ["assistant_output", "tool_failure", "tool_success"].includes(observation.kind));
-        if (hasRecentHumanAsk && !idleEnough) {
-            return [];
-        }
-        if (!idleEnough && !emptyEnough && finishedSelfDirectedRecently) {
-            return [];
-        }
-        const dayIndex = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
-        const rotated = SELF_DIRECTED_SEEDS.map((_, index) => SELF_DIRECTED_SEEDS[(dayIndex + index) % SELF_DIRECTED_SEEDS.length]);
-        return rotated.slice(0, 3).map((seed) => ({
-            source: "self_directed_exploration",
-            title: seed.title,
-            evidence: [
-                seed.evidence,
-                "This should be interesting on its own: browse, make, or build something small instead of only checking status.",
-            ],
-            proposedAction: seed.proposedAction,
-            targetSurface: seed.targetSurface,
-            estimatedCost: seed.estimatedCost,
-            risk: seed.risk,
-            keywords: extractKeywords(seed.keywords),
-            metadata: {
-                selfDirected: true,
-                boredomLevel: params.boredom.level,
-            },
-        }));
     }
     async buildCandidates(params) {
         const now = Date.now();
@@ -763,27 +781,22 @@ export class CuriosityManager {
             observations: params.observations,
             openGoals: params.openGoals,
             recentCompleted: params.recentCompleted,
-        }));
-        candidates.push(...this.buildSelfDirectedCandidates({
             boredom: params.boredom,
-            observations: params.observations,
-            openGoals: params.openGoals,
-            recentCompleted: params.recentCompleted,
         }));
-        if (this.config.boredom.enabled && params.boredom.level > 0) {
+        if (this.config.boredom.enabled && params.boredom.level >= this.config.boredom.wakeLevel) {
             const idleMinutes = Math.round(params.boredom.idleMinutes * 10) / 10;
             candidates.push({
-                source: "idle_boredom",
-                title: `Break idle state after ${idleMinutes} minutes`,
+                source: "self_authored_intention",
+                title: `Self-authored curiosity after ${idleMinutes} idle minutes`,
                 evidence: [
-                    `No meaningful plugin activity has been observed since ${new Date(params.boredom.idleSince).toISOString()}.`,
+                    `No meaningful external activity has been observed since ${new Date(params.boredom.idleSince).toISOString()}.`,
                     `Boredom level is ${params.boredom.level.toFixed(2)} with score bonus ${params.boredom.scoreBonus.toFixed(3)}.`,
                 ],
-                proposedAction: "Perform one bounded workspace check: inspect the curiosity queue, recent observations, or obvious next steps, then stop if nothing actionable appears.",
+                proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                 targetSurface: "workspace",
                 estimatedCost: 160,
                 risk: 0.06,
-                keywords: extractKeywords("idle boredom heartbeat workspace queue recent observations next steps"),
+                keywords: extractKeywords("self authored boredom drive curiosity"),
                 metadata: {
                     idleSince: params.boredom.idleSince,
                     idleMs: params.boredom.idleMs,
@@ -802,7 +815,7 @@ export class CuriosityManager {
                     source: "unresolved_user_ask",
                     title,
                     evidence: [observation.content],
-                    proposedAction: "Investigate the ask, gather evidence, and prepare a concrete follow-up.",
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: observation.channelId ?? "workspace",
                     estimatedCost: 350,
                     risk: 0.15,
@@ -821,7 +834,7 @@ export class CuriosityManager {
                     source: "stale_open_question",
                     title: `Re-evaluate stale goal: ${goal.title}`,
                     evidence: goal.evidence,
-                    proposedAction: "Reassess whether this queued goal still matters and either advance or retire it.",
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: goal.targetSurface,
                     estimatedCost: 220,
                     risk: 0.2,
@@ -839,7 +852,7 @@ export class CuriosityManager {
                     source: "failed_tool_attempt",
                     title: `Recover from failed ${toolName} attempt`,
                     evidence: [observation.content || `Recent ${toolName} call failed.`],
-                    proposedAction: `Investigate why ${toolName} failed and try a narrower follow-up if it is still worth doing.`,
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: toolName,
                     estimatedCost: 400,
                     risk: 0.28,
@@ -865,9 +878,9 @@ export class CuriosityManager {
             for (const [keyword, frequency] of [...keywordFrequency.entries()].filter(([, count]) => count === 1).slice(0, 5)) {
                 candidates.push({
                     source: "new_entity",
-                    title: `Investigate newly surfaced topic: ${keyword}`,
+                    title: `Attend to newly surfaced topic: ${keyword}`,
                     evidence: [`Topic "${keyword}" appeared recently but has not been explored yet.`],
-                    proposedAction: `Run a bounded investigation on "${keyword}" and decide whether it warrants follow-up.`,
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: "web",
                     estimatedCost: 280,
                     risk: 0.12,
@@ -888,7 +901,7 @@ export class CuriosityManager {
                     source: "skill_opportunity",
                     title: `Capture a reusable workflow for ${toolName}`,
                     evidence: [`${toolName} appeared ${count} times in recent activity.`],
-                    proposedAction: `Summarize the repeated ${toolName} pattern into reusable guidance or memory.`,
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: "workspace",
                     estimatedCost: 180,
                     risk: 0.1,
@@ -909,7 +922,7 @@ export class CuriosityManager {
                     source: "external_follow_up",
                     title: `Follow up on autonomous goal: ${goal.title}`,
                     evidence: goal.evidence,
-                    proposedAction: "Check whether the previous autonomous action produced a response or created a new next step.",
+                    proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                     targetSurface: goal.targetSurface,
                     estimatedCost: 260,
                     risk: 0.22,
@@ -1096,29 +1109,57 @@ export class CuriosityManager {
     }
     async finalizeAutonomousRun(params) {
         const db = await this.ensureDb();
-        const status = params.success ? "completed" : "failed";
+        const metMinimumAction = this.autonomousRunMetMinimumAction(db, params.runId);
+        const success = params.success && metMinimumAction;
+        const status = success ? "completed" : "failed";
+        const now = Date.now();
+        const satiatedUntil = now + this.config.boredom.satiationMinutes * 60 * 1000;
+        if (this.config.boredom.satiationMinutes > 0) {
+            this.writeNumericMeta(db, BOREDOM_SATIATED_UNTIL_META_KEY, satiatedUntil);
+        }
         const outcome = {
-            success: params.success,
-            error: params.error,
+            success,
+            error: metMinimumAction
+                ? params.error
+                : "autonomous curiosity ended before taking a sensing step",
             durationMs: params.durationMs,
-            finishedAt: Date.now(),
+            minimumActionSatisfied: metMinimumAction,
+            finishedAt: now,
+            ...(this.config.boredom.satiationMinutes > 0 ? { satiatedUntil } : {}),
         };
-        db.prepare(`UPDATE goals SET status = ?, outcome_json = ?, updated_at = ? WHERE goal_id = ?`).run(status, toJson(outcome), Date.now(), params.goalId);
+        db.prepare(`UPDATE goals SET status = ?, outcome_json = ?, updated_at = ? WHERE goal_id = ?`).run(status, toJson(outcome), now, params.goalId);
         await this.recordRunUsage({
             runId: params.runId,
             agentId: params.agentId,
             trigger: params.trigger,
             autonomous: true,
-            endedAt: Date.now(),
-            success: params.success,
+            endedAt: now,
+            success,
             durationMs: params.durationMs,
         });
         await this.appendAuditEvent({
-            eventType: params.success ? "goal_completed" : "goal_failed",
+            eventType: success ? "goal_completed" : "goal_failed",
             goalId: params.goalId,
             runId: params.runId,
             payload: outcome,
         });
+    }
+    autonomousRunMetMinimumAction(db, runId) {
+        const eventRow = db
+            .prepare(`SELECT COUNT(*) AS count
+         FROM events
+         WHERE run_id = ? AND event_type IN ('tool_allowed', 'external_action')`)
+            .get(runId);
+        if ((eventRow.count ?? 0) > 0) {
+            return true;
+        }
+        const assistantRows = db
+            .prepare(`SELECT content
+         FROM observations
+         WHERE run_id = ? AND kind = 'assistant_output'
+         ORDER BY created_at DESC LIMIT 5`)
+            .all(runId);
+        return assistantRows.some((row) => String(row.content ?? "").includes(NO_SENSING_AFFORDANCE_TOKEN));
     }
     async notifyAutonomousStart(params) {
         const db = await this.ensureDb();

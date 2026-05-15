@@ -10,7 +10,15 @@ describe("resolveCuriosityConfig", () => {
     const resolved = resolveCuriosityConfig({
       budgets: { autonomousRunsPerDay: 5 },
       thresholds: { act: 0.7 },
-      boredom: { idleStartMinutes: 2, saturationMinutes: 20, maxScoreBonus: 0.4 },
+      boredom: {
+        idleStartMinutes: 2,
+        saturationMinutes: 20,
+        maxScoreBonus: 0.4,
+        wakeLevel: 0.8,
+        wakeCheckMinutes: 3,
+        wakeMinIntervalMinutes: 7,
+        satiationMinutes: 11,
+      },
       actionPolicy: { externalTargetPolicy: "research-web-only" },
       notifications: {
         autonomousStart: {
@@ -30,6 +38,10 @@ describe("resolveCuriosityConfig", () => {
       idleStartMinutes: 2,
       saturationMinutes: 20,
       maxScoreBonus: 0.4,
+      wakeLevel: 0.8,
+      wakeCheckMinutes: 3,
+      wakeMinIntervalMinutes: 7,
+      satiationMinutes: 11,
     });
     expect(resolved.actionPolicy.externalTargetPolicy).toBe("research-web-only");
     expect(resolved.budgets.externalActionsPerDay).toBe(

@@ -101,6 +101,46 @@ export function register(api: OpenClawPluginApi) {
         configuredSurfaces: extractConfiguredSurfaces(api.config as Record<string, unknown>),
         logger: api.logger,
       });
+    let boredomWakeTimer: ReturnType<typeof setInterval> | null = null;
+    const stopBoredomWakeLoop = () => {
+      if (!boredomWakeTimer) {
+        return;
+      }
+      clearInterval(boredomWakeTimer);
+      boredomWakeTimer = null;
+    };
+    const startBoredomWakeLoop = (workspaceDir: string) => {
+      stopBoredomWakeLoop();
+      const requestHeartbeatNow = api.runtime?.system?.requestHeartbeatNow;
+      if (!pluginConfig.boredom.enabled || !requestHeartbeatNow) {
+        return;
+      }
+      const agentId = resolveDefaultAgentId(api.config);
+      const runReason = "curiosity-boredom";
+      const tick = async () => {
+        try {
+          const manager = await resolveManager(workspaceDir);
+          const decision = await manager.shouldRequestBoredomWake();
+          if (!decision.shouldWake) {
+            return;
+          }
+          await manager.markBoredomWakeRequested({
+            runReason,
+            agentId,
+            boredom: decision.boredom,
+          });
+          requestHeartbeatNow({ reason: runReason, agentId });
+        } catch (error) {
+          api.logger.warn?.(`curiosity: boredom wake check failed (${String(error)})`);
+        }
+      };
+      const intervalMs = Math.max(5_000, pluginConfig.boredom.wakeCheckMinutes * 60 * 1000);
+      boredomWakeTimer = setInterval(() => {
+        void tick();
+      }, intervalMs);
+      boredomWakeTimer.unref?.();
+      void tick();
+    };
 
     api.registerTool(
       (ctx: any) => {
@@ -139,14 +179,15 @@ export function register(api: OpenClawPluginApi) {
       id: "curiosity",
       start: async (ctx: any) => {
         setRuntimeConfig(pluginConfig);
-        if (ctx.workspaceDir) {
-          const manager = await resolveManager(ctx.workspaceDir);
-          await manager.pruneRetention();
-          await manager.getBoredomState();
-        }
+        const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir);
+        const manager = await resolveManager(workspaceDir);
+        await manager.pruneRetention();
+        await manager.getBoredomState();
+        startBoredomWakeLoop(workspaceDir);
         api.logger.info?.("curiosity: service started");
       },
       stop: async () => {
+        stopBoredomWakeLoop();
         await stopManagers();
         api.logger.info?.("curiosity: service stopped");
       },
@@ -162,6 +203,7 @@ export function register(api: OpenClawPluginApi) {
         metadata: {
           from: event.from,
           channelId: ctx.channelId,
+          trigger: ctx.trigger,
         },
       });
     });
@@ -235,6 +277,7 @@ export function register(api: OpenClawPluginApi) {
         metadata: {
           durationMs: event.durationMs,
           toolCallId: event.toolCallId,
+          trigger: ctx.trigger,
         },
       });
     });
@@ -250,6 +293,7 @@ export function register(api: OpenClawPluginApi) {
         metadata: {
           to: event.to,
           channelId: ctx.channelId,
+          trigger: ctx.trigger,
         },
       });
       if (!activeRun) {
@@ -280,6 +324,7 @@ export function register(api: OpenClawPluginApi) {
           to: event.to,
           error: event.error,
           channelId: ctx.channelId,
+          trigger: ctx.trigger,
         },
       });
     });
@@ -297,6 +342,7 @@ export function register(api: OpenClawPluginApi) {
         metadata: {
           provider: event.provider,
           model: event.model,
+          trigger: ctx.trigger,
         },
       });
       await manager.updateRunTokens({

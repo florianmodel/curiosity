@@ -1,6 +1,6 @@
 export type GoalSource =
+  | "self_authored_intention"
   | "bootstrap_exploration"
-  | "self_directed_exploration"
   | "unresolved_user_ask"
   | "stale_open_question"
   | "failed_tool_attempt"
@@ -54,7 +54,6 @@ export type ActiveWindowConfig = {
 
 export type GoalSourcesConfig = {
   bootstrapExploration: boolean;
-  selfDirectedExploration: boolean;
   unresolvedUserAsks: boolean;
   staleOpenQuestions: boolean;
   failedToolAttempts: boolean;
@@ -88,6 +87,10 @@ export type CuriosityConfig = {
     idleStartMinutes: number;
     saturationMinutes: number;
     maxScoreBonus: number;
+    wakeLevel: number;
+    wakeCheckMinutes: number;
+    wakeMinIntervalMinutes: number;
+    satiationMinutes: number;
   };
   shadowModels: string[];
   logging: {
@@ -179,10 +182,12 @@ export type BoredomState = {
   idleSince: number;
   idleMs: number;
   idleMinutes: number;
+  rawLevel: number;
   level: number;
   scoreBonus: number;
   startsAfterMs: number;
   saturatesAfterMs: number;
+  satiatedUntil?: number;
 };
 
 export type GoalSelectionDecision =
