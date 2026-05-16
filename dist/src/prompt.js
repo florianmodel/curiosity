@@ -1,6 +1,24 @@
 function bulletList(items) {
     return items.map((item) => `- ${item}`).join("\n");
 }
+function proactivityMode(goal) {
+    const boredom = goal.scoresByModel.boredom_drive;
+    if (boredom >= 0.85) {
+        return [
+            "High boredom: prefer a completed outcome over orientation.",
+            "If a safe follow-through exists after sensing, take it in this run instead of stopping at inspection.",
+        ];
+    }
+    if (boredom >= 0.55) {
+        return [
+            "Active autonomy: choose one specific, low-risk outcome you can actually complete now.",
+            "A read-only scan is only useful when it leads to a concrete finding, check, artifact, or reversible local change.",
+        ];
+    }
+    return [
+        "Light curiosity: one careful tool-backed pass is enough when the available opportunity is still weak.",
+    ];
+}
 export function renderAutonomousGoalPrompt(params) {
     const { goal, budgetUsage, threshold, minimumSensingSteps } = params;
     return [
@@ -11,6 +29,8 @@ export function renderAutonomousGoalPrompt(params) {
         `Act threshold: ${threshold.toFixed(2)}`,
         `Drive signal: ${goal.title}`,
         `Available surface: ${goal.targetSurface}`,
+        "Run objective:",
+        goal.proposedAction,
         "Current evidence:",
         bulletList(goal.evidence),
         "Score vector:",
@@ -22,16 +42,20 @@ export function renderAutonomousGoalPrompt(params) {
             `curriculum=${goal.scoresByModel.llm_curriculum_reflection.toFixed(3)}`,
             `boredom=${goal.scoresByModel.boredom_drive.toFixed(3)}`,
         ]),
+        "Proactivity mode:",
+        bulletList(proactivityMode(goal)),
         "Constraints:",
         bulletList([
-            "Start by choosing the first allowed sensing tool call; do not spend the turn explaining the plan first.",
             "Author the actual intention yourself from the available context; this prompt is only the drive signal.",
-            `Take at least ${minimumSensingSteps} low-risk sensing or inspection steps through allowed tools before concluding.`,
-            "If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
+            "Choose the content domain by neutral opportunity selection: salience in local context, uncertainty, leverage, and reversibility. Do not treat the drive label as the topic.",
+            "Do not send a user-visible meta announcement before acting; start with an allowed tool call unless no safe tool affordance exists.",
+            `Take at least ${minimumSensingSteps} qualifying low-risk tool-backed steps before concluding; curiosity_inspect alone does not count.`,
+            "A scan is not enough by itself: after read-only sensing, either take one safe follow-through step that changes, creates, checks, or verifies something, or report the evidenced blocker.",
+            "End with the concrete outcome and the evidence for it, not with a description of the policy.",
+            "If no safe tool affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
             "Pursue at most one autonomous intention in this run.",
             "Stay within existing OpenClaw safety, approvals, and tool policies.",
             `Remaining autonomous budgets are approximate: runs24h=${budgetUsage.autonomousRuns24h}, tokens24h=${budgetUsage.autonomousTokens24h}, external24h=${budgetUsage.externalActions24h}, external1h=${budgetUsage.externalActions1h}.`,
-            "If you cannot make meaningful progress, reply HEARTBEAT_OK.",
         ]),
     ].join("\n");
 }

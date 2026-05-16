@@ -205,6 +205,37 @@ describe("CuriosityManager", () => {
     }
   });
 
+  it("writes a concrete title for underexplored surface autonomy", async () => {
+    const manager = await createManager({
+      goalSources: { ...NO_GOAL_SOURCES, lowCoverageSurfaces: true },
+      thresholds: { act: 0.2 },
+      boredom: {
+        enabled: false,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0,
+      },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      channelId: "telegram",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "Just a tiny signal here.",
+    });
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-low-coverage",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(true);
+    if (decision.selected) {
+      expect(decision.goal.title).toMatch(/Self-author on underexplored surface:/);
+      expect(decision.goal.targetSurface).toBe("workspace");
+    }
+  });
+
   it("enforces the autonomous run budget", async () => {
     const manager = await createManager();
     await manager.recordObservation({
@@ -454,7 +485,7 @@ describe("CuriosityManager", () => {
     expect(second.selected).toBe(false);
   });
 
-  it("marks autonomous runs failed when they end without a sensing step", async () => {
+  it("marks autonomous runs failed when they end without a tool-backed action", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },
     });
@@ -519,6 +550,41 @@ describe("CuriosityManager", () => {
     expect(goal.status).toBe("failed");
     expect(goal.outcome?.sensingSteps).toBe(1);
     expect(goal.outcome?.requiredSensingSteps).toBe(2);
+  });
+
+  it("does not count curiosity_inspect as a qualifying sensing step", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      actionPolicy: { minimumSensingSteps: 1 },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-self-inspect-only",
+      trigger: "heartbeat",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+
+    await manager.canUseTool("run-self-inspect-only", "curiosity_inspect");
+    await manager.finalizeAutonomousRun({
+      runId: "run-self-inspect-only",
+      goalId: decision.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: true,
+    });
+    const inspected = await manager.inspectIdentifier(decision.goal.goalId);
+    const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
+
+    expect(goal.status).toBe("failed");
+    expect(goal.outcome?.sensingSteps).toBe(0);
+    expect(goal.outcome?.minimumActionSatisfied).toBe(false);
   });
 
   it("can pause and resume selection", async () => {
