@@ -124,7 +124,7 @@ openclaw curiosity resume
 
 - Heartbeat remains a selection surface, and boredom can proactively request a heartbeat once the drive crosses `boredom.wakeLevel`.
 - To limit curiosity selection by time of day, set `actionPolicy.activeHours` to `configured-window` and provide `actionPolicy.activeWindow` with `start`, `end`, and optional `timeZone` values.
-- To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The notice is sent only when a heartbeat selects an autonomous goal.
+- To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The same Telegram config now sends both the start notice and the completion/failure notice.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
 - Curiosity prompts carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
 - Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.
