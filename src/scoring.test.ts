@@ -18,7 +18,7 @@ const baseCandidate: CandidateGoal = {
   title: "Resolve user ask: pending uncertainty",
   evidence: ["Can you resolve the pending uncertainty?"],
   proposedAction:
-    "Author one bounded intention from the available context, take the smallest useful sensing step, record what changed, and stop.",
+    "Author one bounded intention from the available context, choose the topic by neutral opportunity rather than by the drive label, use available tools before narrating, produce one concrete reversible outcome or evidenced blocker, and stop.",
   targetSurface: "workspace",
   estimatedCost: 300,
   risk: 0.1,

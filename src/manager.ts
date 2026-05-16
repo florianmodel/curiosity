@@ -67,7 +67,7 @@ const LAST_BOREDOM_WAKE_META_KEY = "last_boredom_wake_requested_at";
 const AUTONOMOUS_START_NOTICE_META_KEY = "autonomous_start_notice_sent_at";
 const NO_SENSING_AFFORDANCE_TOKEN = "NO_SENSING_AFFORDANCE";
 const SELF_AUTHORED_PROPOSED_ACTION =
-  "Author one bounded intention from the available context, take the smallest useful sensing step, record what changed, and stop.";
+  "Author one bounded intention from the available context, choose the topic by neutral opportunity rather than by the drive label, use available tools before narrating, produce one concrete reversible outcome or evidenced blocker, and stop.";
 const SAFE_LOCAL_TOOLS = new Set([
   "read",
   "write",
@@ -983,7 +983,7 @@ export class CuriosityManager {
       if (seenCount <= 1 || !recentChannels.has(surface)) {
         candidates.push({
           source: "low_coverage_surface",
-          title: `Check low-coverage configured surface: ${surface}`,
+          title: `Self-author on underexplored surface: ${surface}`,
           evidence: [
             recentChannels.has(surface)
               ? `Only ${seenCount} recent observation(s) mention ${surface}.`
@@ -1068,7 +1068,7 @@ export class CuriosityManager {
       const idleMinutes = Math.round(params.boredom.idleMinutes * 10) / 10;
       candidates.push({
         source: "self_authored_intention",
-        title: "Self-authored curiosity under boredom",
+        title: "Use idle time for one concrete autonomous outcome",
         evidence: [
           `No meaningful external activity has been observed since ${new Date(params.boredom.idleSince).toISOString()}.`,
           `Boredom level is ${params.boredom.level.toFixed(2)} after ${idleMinutes} idle minutes.`,
@@ -1511,7 +1511,7 @@ export class CuriosityManager {
       success,
       error: metMinimumAction
         ? params.error
-        : `autonomous curiosity ended before taking ${this.config.actionPolicy.minimumSensingSteps} sensing steps`,
+        : `autonomous curiosity ended before taking ${this.config.actionPolicy.minimumSensingSteps} qualifying tool-backed step(s) or declaring no safe tool affordance`,
       durationMs: params.durationMs,
       minimumActionSatisfied: metMinimumAction,
       sensingSteps,
@@ -1540,14 +1540,21 @@ export class CuriosityManager {
   }
 
   private countAutonomousSensingSteps(db: DatabaseSync, runId: string): number {
-    const eventRow = db
+    const eventRows = db
       .prepare(
-        `SELECT COUNT(*) AS count
+        `SELECT event_type, payload_json
          FROM events
          WHERE run_id = ? AND event_type IN ('tool_allowed', 'external_action')`,
       )
-      .get(runId) as { count?: number };
-    return eventRow.count ?? 0;
+      .all(runId) as { event_type?: string; payload_json?: string }[];
+    return eventRows.filter((row) => {
+      if (row.event_type === "external_action") {
+        return true;
+      }
+      const payload = parseJsonObject(row.payload_json);
+      const toolName = String(payload.toolName ?? "").trim().toLowerCase();
+      return row.event_type === "tool_allowed" && toolName !== "curiosity_inspect";
+    }).length;
   }
 
   private autonomousRunReportedNoSensingAffordance(db: DatabaseSync, runId: string): boolean {

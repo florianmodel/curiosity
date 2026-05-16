@@ -8,6 +8,7 @@
 - Scores them with several intrinsic-motivation-inspired heuristics
 - Selects one high-value goal on heartbeat runs when the score clears a threshold
 - Adds an idle-time boredom drive that can wake a self-authored run
+- Escalates bored runs toward one concrete, tool-backed, reversible outcome instead of a meta announcement or bare inspection
 - Optionally sends a Telegram notice when an autonomous curiosity run starts
 - Logs every scored goal, selected goal, external action, and token budget event
 - Exposes queue/inspect/compare/pause/resume surfaces through both a tool and CLI
@@ -125,7 +126,10 @@ openclaw curiosity resume
 - To limit curiosity selection by time of day, set `actionPolicy.activeHours` to `configured-window` and provide `actionPolicy.activeWindow` with `start`, `end`, and optional `timeZone` values.
 - To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The notice is sent only when a heartbeat selects an autonomous goal.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
-- Curiosity prompts carry drive signals and constraints; the agent must author its own bounded intention from inside the run.
+- Curiosity prompts carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
+- Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.
+- The first visible response should not be a run announcement when tools are available. The run should act first, then report the outcome and evidence.
+- `curiosity_inspect` is useful for human/debug inspection, but it does not count as a qualifying autonomous sensing step by itself.
 - Infrastructure failures and repeated goal fingerprints are damped so curiosity does not orbit its own gateway errors.
 - `failedToolAttempts` and `skillOpportunities` default off; enable them only when you want meta-maintenance to compete with boredom-driven exploration.
 - The plugin only adds guardrails and autonomous-goal context. It does not bypass existing OpenClaw approvals or safety controls.
