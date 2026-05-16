@@ -544,6 +544,41 @@ describe("CuriosityManager", () => {
     expect(forced.selected).toBe(true);
   });
 
+  it("manual force selection authors a fallback goal when drive gates are quiet", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 60,
+        saturationMinutes: 120,
+        wakeLevel: 0.8,
+        satiationMinutes: 0,
+      },
+    });
+
+    const ordinary = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-force-none-ordinary",
+      trigger: "curiosity-cli",
+    });
+    expect(ordinary.selected).toBe(false);
+    if (!ordinary.selected) {
+      expect(ordinary.reason).toBe("no_candidates");
+    }
+
+    const forced = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-force-none",
+      trigger: "curiosity-cli",
+      ignoreRetryBlocks: true,
+    });
+    expect(forced.selected).toBe(true);
+    if (forced.selected) {
+      expect(forced.goal.title).toBe("Manual self-authored curiosity run");
+    }
+  });
+
   it("marks autonomous runs failed when they end without a tool-backed action", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },
