@@ -36,6 +36,7 @@ npm run build
 openclaw plugins install --force "$PLUGIN_DIR"
 openclaw plugins enable curiosity
 openclaw gateway restart
+openclaw curiosity run --agent main --force true --timeout 900
 ```
 
 ## Guardrails

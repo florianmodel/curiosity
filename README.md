@@ -89,7 +89,7 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
             "activeHours": "always-on",
             "minimumSensingSteps": 2,
             "maxAttemptsPerGoal": 2,
-            "retryCooldownMinutes": 120
+            "retryCooldownMinutes": 5
           },
           "notifications": {
             "autonomousStart": {
@@ -116,6 +116,7 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
 openclaw curiosity queue
 openclaw curiosity inspect <goal-id-or-run-id>
 openclaw curiosity compare --window 24h
+openclaw curiosity run --agent main --force true --timeout 900
 openclaw curiosity pause
 openclaw curiosity resume
 ```

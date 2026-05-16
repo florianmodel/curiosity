@@ -59,7 +59,7 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     activeHours: "always-on",
     minimumSensingSteps: 2,
     maxAttemptsPerGoal: 2,
-    retryCooldownMinutes: 120,
+    retryCooldownMinutes: 5,
   },
   notifications: {
     autonomousStart: {

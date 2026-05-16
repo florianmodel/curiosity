@@ -207,6 +207,7 @@ export type GoalSelectionDecision =
         | "budget_exhausted"
         | "no_candidates"
         | "below_threshold"
+        | "retry_blocked"
         | "outside_active_hours";
       budgetUsage: BudgetUsage;
       candidateCount: number;
