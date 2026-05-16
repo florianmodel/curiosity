@@ -18,6 +18,26 @@ This repository contains the OpenClaw curiosity plugin. Treat it as a production
 - Use concise commits on the current branch when appropriate; if the work starts on a protected or shared branch and direct push is blocked, create a short feature branch and push it.
 - Do not leave finished local changes unpushed. If push fails because authentication or branch protection blocks it, report the exact blocker and the commit/branch that needs pushing.
 
+## Server Update Snippet
+
+Use this on the server to fetch and activate the latest plugin build. Set `PLUGIN_DIR` to the checkout path you want to use on that machine.
+
+```bash
+export PLUGIN_DIR="${PLUGIN_DIR:-$HOME/curiosity}"
+
+if [ ! -d "$PLUGIN_DIR/.git" ]; then
+  git clone https://github.com/florianmodel/curiosity.git "$PLUGIN_DIR"
+fi
+
+cd "$PLUGIN_DIR"
+git pull --ff-only origin main
+npm ci
+npm run build
+openclaw plugins install --force "$PLUGIN_DIR"
+openclaw plugins enable curiosity
+openclaw gateway restart
+```
+
 ## Guardrails
 
 - Never commit secrets, local OpenClaw config, tokens, database files, or workspace `.openclaw/` state.
