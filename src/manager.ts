@@ -1338,6 +1338,7 @@ export class CuriosityManager {
     agentId: string;
     runId: string;
     trigger: string;
+    ignoreRetryBlocks?: boolean;
   }): Promise<GoalSelectionDecision> {
     const now = Date.now();
     await this.pruneRetention(now);
@@ -1436,7 +1437,7 @@ export class CuriosityManager {
       const blockedReason = this.goalRetryBlocked(goal, now);
       if (blockedReason) {
         blockedGoals.push({ goalId: goal.goalId, title: goal.title, reason: blockedReason });
-        return false;
+        return params.ignoreRetryBlocks === true;
       }
       return true;
     });
@@ -1453,7 +1454,7 @@ export class CuriosityManager {
       });
       return {
         selected: false,
-        reason: "below_threshold",
+        reason: blockedGoals.length > 0 ? "retry_blocked" : "below_threshold",
         budgetUsage,
         candidateCount: candidates.length,
       };

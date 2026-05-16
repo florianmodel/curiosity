@@ -485,6 +485,65 @@ describe("CuriosityManager", () => {
     expect(second.selected).toBe(false);
   });
 
+  it("reports retry-blocked selections and allows manual force selection", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      actionPolicy: {
+        minimumSensingSteps: 2,
+        maxAttemptsPerGoal: 2,
+        retryCooldownMinutes: 120,
+      },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+        satiationMinutes: 0,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "External activity anchor.",
+    });
+    const first = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-retry-block-1",
+      trigger: "heartbeat",
+    });
+    expect(first.selected).toBe(true);
+    if (!first.selected) {
+      return;
+    }
+    await manager.finalizeAutonomousRun({
+      runId: "run-retry-block-1",
+      goalId: first.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: false,
+      error: "model auth failed",
+    });
+
+    const blocked = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-retry-block-2",
+      trigger: "heartbeat",
+    });
+    expect(blocked.selected).toBe(false);
+    if (!blocked.selected) {
+      expect(blocked.reason).toBe("retry_blocked");
+    }
+
+    const forced = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-retry-force",
+      trigger: "curiosity-cli",
+      ignoreRetryBlocks: true,
+    });
+    expect(forced.selected).toBe(true);
+  });
+
   it("marks autonomous runs failed when they end without a tool-backed action", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },

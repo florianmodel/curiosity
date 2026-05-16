@@ -172,11 +172,13 @@ async function selectGoal(params: {
   agentId: string;
   runId: string;
   notify: boolean;
+  force?: boolean;
 }): Promise<GoalSelectionDecision & { notification?: unknown }> {
   const decision = await params.manager.selectGoalForRun({
     agentId: params.agentId,
     runId: params.runId,
     trigger: "curiosity-cli",
+    ignoreRetryBlocks: params.force === true,
   });
   const notification = decision.selected && params.notify
     ? await params.manager.notifyAutonomousStart({
@@ -243,7 +245,8 @@ export async function registerCuriosityCli(params: {
     .option("--agent <id>", "Agent id for the autonomous run")
     .option("--run-id <id>", "Run id to use for audit records")
     .option("--notify <boolean>", "Send configured start notification when a goal is selected", "true")
-    .action(async (options: { agent?: string; runId?: string; notify?: string }) => {
+    .option("--force <boolean>", "Ignore retry cooldown for a manual selection tick", "false")
+    .action(async (options: { agent?: string; runId?: string; notify?: string; force?: string }) => {
       const runId = options.runId?.trim() || `curiosity-cli-${Date.now()}`;
       const agentId = options.agent?.trim() || defaultAgentId;
       const selectedManager = await manager();
@@ -252,6 +255,7 @@ export async function registerCuriosityCli(params: {
         agentId,
         runId,
         notify: parseBooleanOption(options.notify, true),
+        force: parseBooleanOption(options.force, false),
       });
 
       printJson({
@@ -269,6 +273,7 @@ export async function registerCuriosityCli(params: {
     .option("--timeout <seconds>", "Agent command timeout in seconds", "900")
     .option("--select <boolean>", "Select a new goal when none is already selected", "true")
     .option("--notify <boolean>", "Send configured start notification for newly selected goals", "true")
+    .option("--force <boolean>", "Ignore retry cooldown for this manual run", "false")
     .action(
       async (options: {
         agent?: string;
@@ -276,6 +281,7 @@ export async function registerCuriosityCli(params: {
         timeout?: string;
         select?: string;
         notify?: string;
+        force?: string;
       }) => {
         const runId = options.runId?.trim() || `curiosity-run-${Date.now()}`;
         const agentId = options.agent?.trim() || defaultAgentId;
@@ -297,6 +303,7 @@ export async function registerCuriosityCli(params: {
                 agentId,
                 runId,
                 notify: parseBooleanOption(options.notify, true),
+                force: parseBooleanOption(options.force, false),
               })
             : { selected: false as const, reason: "no_selected_goal" };
 
