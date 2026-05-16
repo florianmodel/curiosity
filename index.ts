@@ -7,6 +7,7 @@ import {
   curiosityPluginConfigSchemaJson,
   resolveCuriosityConfig,
 } from "./src/config.js";
+import { executeCuriosityRun } from "./src/executor.js";
 import { renderAutonomousGoalPrompt, renderHeartbeatNoGoalPrompt } from "./src/prompt.js";
 import {
   clearActiveRun,
@@ -93,6 +94,7 @@ export function extractConfiguredSurfaces(config: Record<string, unknown> | unde
 export function register(api: OpenClawPluginApi) {
     const pluginConfig = resolveCuriosityConfig(api.pluginConfig);
     setRuntimeConfig(pluginConfig);
+    const gatewayUrl = resolveGatewayUrl(api.config);
 
     const resolveManager = async (workspaceDir: string) =>
       getOrCreateManager({
@@ -102,6 +104,7 @@ export function register(api: OpenClawPluginApi) {
         logger: api.logger,
       });
     let boredomWakeTimer: ReturnType<typeof setInterval> | null = null;
+    let boredomRunInFlight = false;
     const stopBoredomWakeLoop = () => {
       if (!boredomWakeTimer) {
         return;
@@ -111,27 +114,47 @@ export function register(api: OpenClawPluginApi) {
     };
     const startBoredomWakeLoop = (workspaceDir: string) => {
       stopBoredomWakeLoop();
-      const requestHeartbeatNow = api.runtime?.system?.requestHeartbeatNow;
-      if (!pluginConfig.boredom.enabled || !requestHeartbeatNow) {
+      if (!pluginConfig.boredom.enabled) {
         return;
       }
       const agentId = resolveDefaultAgentId(api.config);
-      const runReason = "curiosity-boredom";
+      const runReason = "curiosity-boredom-executor";
       const tick = async () => {
+        if (boredomRunInFlight) {
+          return;
+        }
         try {
           const manager = await resolveManager(workspaceDir);
           const decision = await manager.shouldRequestBoredomWake();
           if (!decision.shouldWake) {
             return;
           }
+          boredomRunInFlight = true;
           await manager.markBoredomWakeRequested({
             runReason,
             agentId,
             boredom: decision.boredom,
           });
-          requestHeartbeatNow({ reason: runReason, agentId });
+          const result = await executeCuriosityRun({
+            manager,
+            agentId,
+            timeoutSeconds: 900,
+            gatewayUrl,
+            select: true,
+            notifyStart: false,
+            trigger: runReason,
+          });
+          if (!result.selected) {
+            api.logger.info?.(`curiosity: autonomous executor did not select a goal (${result.reason})`);
+          } else {
+            api.logger.info?.(
+              `curiosity: autonomous executor finished run ${result.runId} success=${String(result.success)}`,
+            );
+          }
         } catch (error) {
-          api.logger.warn?.(`curiosity: boredom wake check failed (${String(error)})`);
+          api.logger.warn?.(`curiosity: autonomous executor failed (${String(error)})`);
+        } finally {
+          boredomRunInFlight = false;
         }
       };
       const intervalMs = Math.max(5_000, pluginConfig.boredom.wakeCheckMinutes * 60 * 1000);
@@ -159,7 +182,7 @@ export function register(api: OpenClawPluginApi) {
         await registerCuriosityCli({
           program,
           workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
-          gatewayUrl: resolveGatewayUrl(api.config),
+          gatewayUrl,
           defaultAgentId: resolveDefaultAgentId(api.config),
           resolveManager,
         });
@@ -289,6 +312,8 @@ export function register(api: OpenClawPluginApi) {
       const activeRun = getSoleActiveRun();
       const workspaceDir = resolveWorkspaceDir(api);
       const manager = await resolveManager(workspaceDir);
+      const runId = activeRun?.runId ?? ctx.runId;
+      const runGoal = activeRun ? null : runId ? await manager.findGoalByRunId(runId) : null;
       await manager.recordObservation({
         kind: "message_sending",
         channelId: ctx.channelId,
@@ -299,11 +324,11 @@ export function register(api: OpenClawPluginApi) {
           trigger: ctx.trigger,
         },
       });
-      if (!activeRun) {
+      if (!activeRun && !runGoal) {
         return;
       }
       const allowed = await manager.canSendMessage(
-        activeRun.runId,
+        activeRun?.runId ?? runId ?? "",
         ctx.channelId ?? event.to,
         event.to,
       );
@@ -336,6 +361,8 @@ export function register(api: OpenClawPluginApi) {
       const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, ctx.agentId);
       const manager = await resolveManager(workspaceDir);
       const activeRun = getActiveRun(event.runId);
+      const runGoal = activeRun ? null : await manager.findGoalByRunId(event.runId);
+      const goalId = activeRun?.goalId ?? runGoal?.goalId;
       await manager.recordObservation({
         kind: "assistant_output",
         runId: event.runId,
@@ -350,7 +377,7 @@ export function register(api: OpenClawPluginApi) {
       });
       await manager.updateRunTokens({
         runId: event.runId,
-        goalId: activeRun?.goalId,
+        goalId,
         agentId: ctx.agentId ?? "unknown",
         trigger: ctx.trigger ?? "user",
         inputTokens: event.usage?.input,

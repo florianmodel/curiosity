@@ -10,8 +10,8 @@ export const DEFAULT_CURIOSITY_CONFIG = {
     budgets: {
         autonomousRunsPerDay: 48,
         autonomousTokensPerDay: 50_000,
-        externalActionsPerDay: 3,
-        externalActionsPerHour: 1,
+        externalActionsPerDay: 24,
+        externalActionsPerHour: 6,
     },
     goalSources: {
         bootstrapExploration: true,

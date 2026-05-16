@@ -1,6 +1,6 @@
 import { parseWindowDuration } from "./config.js";
+import { executeCuriosityRun, selectCuriosityGoal } from "./executor.js";
 import type { CuriosityManager } from "./manager.js";
-import type { GoalRecord, GoalSelectionDecision } from "./types.js";
 
 type CliCommand = {
   description: (text: string) => CliCommand;
@@ -26,168 +26,6 @@ function parseBooleanOption(value: string | undefined, fallback: boolean): boole
     return false;
   }
   return fallback;
-}
-
-function clampOutput(text: string, maxChars = 4000): string {
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return `${text.slice(0, 1000)}\n...[truncated]...\n${text.slice(-maxChars + 1018)}`;
-}
-
-function renderGoalRunMessage(goal: GoalRecord): string {
-  return [
-    "Run this autonomous curiosity goal as one bounded self-directed investigation.",
-    "",
-    `Goal ID: ${goal.goalId}`,
-    `Drive signal: ${goal.title}`,
-    `Source: ${goal.source}`,
-    `Target surface: ${goal.targetSurface}`,
-    "",
-    "Evidence:",
-    ...goal.evidence.map((item) => `- ${item}`),
-    "",
-    "Autonomy brief:",
-    "- Start by choosing the first allowed sensing tool call; do not spend the turn explaining the plan first.",
-    "- Do not satisfy this request with narrative alone; use available tools unless no safe tool affordance exists.",
-    "- Author the actual intention yourself from the available context.",
-    "- Take multiple low-risk sensing or inspection steps through allowed tools before concluding.",
-    "- If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
-    "- Do one bounded pass and stop.",
-    "- End with what you did, what surprised you, and the next clue.",
-  ].join("\n");
-}
-
-type GatewayClientInstance = {
-  start: () => void;
-  stopAndWait: (opts?: { timeoutMs?: number }) => Promise<void>;
-  request: <T = Record<string, unknown>>(
-    method: string,
-    params?: unknown,
-    opts?: { expectFinal?: boolean; timeoutMs?: number | null },
-  ) => Promise<T>;
-};
-
-type GatewayClientConstructor = new (opts: {
-  url?: string;
-  requestTimeoutMs?: number;
-  clientDisplayName?: string;
-  onHelloOk?: () => void;
-  onConnectError?: (err: Error) => void;
-}) => GatewayClientInstance;
-
-async function runOpenClawAgent(params: {
-  agentId: string;
-  runId: string;
-  message: string;
-  timeoutSeconds: number;
-  gatewayUrl: string;
-}): Promise<{
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
-}> {
-  const { GatewayClient } = (await import("openclaw/plugin-sdk/gateway-runtime")) as {
-    GatewayClient: GatewayClientConstructor;
-  };
-  const timeoutMs = Math.max(10_000, (params.timeoutSeconds + 30) * 1000);
-
-  return new Promise((resolve, reject) => {
-    let client: GatewayClientInstance;
-    let settled = false;
-    const finish = (value: { exitCode: number | null; stdout: string; stderr: string }) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      void client.stopAndWait().finally(() => resolve(value));
-    };
-    const fail = (err: unknown) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      void client.stopAndWait().finally(() => reject(err));
-    };
-
-    const timer = setTimeout(() => {
-      fail(new Error(`gateway agent request timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
-    client = new GatewayClient({
-      url: params.gatewayUrl,
-      requestTimeoutMs: timeoutMs,
-      clientDisplayName: "Curiosity",
-      onHelloOk: () => {
-        client
-          .request<{
-            status?: string;
-            summary?: string;
-            result?: { payloads?: Array<{ text?: string; mediaUrl?: string | null; mediaUrls?: string[] }> };
-          }>(
-            "agent",
-            {
-              message: params.message,
-              agentId: params.agentId,
-              timeout: params.timeoutSeconds,
-              idempotencyKey: params.runId,
-            },
-            { expectFinal: true, timeoutMs },
-          )
-          .then((response) => {
-            clearTimeout(timer);
-            const payloads = response.result?.payloads ?? [];
-            const text = payloads
-              .map((payload) => [payload.text, payload.mediaUrl, ...(payload.mediaUrls ?? [])]
-                .filter(Boolean)
-                .join("\n"))
-              .filter(Boolean)
-              .join("\n\n");
-            finish({
-              exitCode: 0,
-              stdout: text || response.summary || JSON.stringify(response),
-              stderr: "",
-            });
-          })
-          .catch((err) => {
-            clearTimeout(timer);
-            finish({
-              exitCode: 1,
-              stdout: "",
-              stderr: err instanceof Error ? err.message : String(err),
-            });
-          });
-      },
-      onConnectError: (err) => {
-        clearTimeout(timer);
-        fail(err);
-      },
-    });
-    client.start();
-  });
-}
-
-async function selectGoal(params: {
-  manager: CuriosityManager;
-  agentId: string;
-  runId: string;
-  notify: boolean;
-  force?: boolean;
-}): Promise<GoalSelectionDecision & { notification?: unknown }> {
-  const decision = await params.manager.selectGoalForRun({
-    agentId: params.agentId,
-    runId: params.runId,
-    trigger: "curiosity-cli",
-    ignoreRetryBlocks: params.force === true,
-  });
-  const notification = decision.selected && params.notify
-    ? await params.manager.notifyAutonomousStart({
-        runId: params.runId,
-        agentId: params.agentId,
-        goal: decision.goal,
-      })
-    : undefined;
-  return { ...decision, notification };
 }
 
 export async function registerCuriosityCli(params: {
@@ -250,12 +88,13 @@ export async function registerCuriosityCli(params: {
       const runId = options.runId?.trim() || `curiosity-cli-${Date.now()}`;
       const agentId = options.agent?.trim() || defaultAgentId;
       const selectedManager = await manager();
-      const decision = await selectGoal({
+      const decision = await selectCuriosityGoal({
         manager: selectedManager,
         agentId,
         runId,
         notify: parseBooleanOption(options.notify, true),
         force: parseBooleanOption(options.force, false),
+        trigger: "curiosity-cli",
       });
 
       printJson({
@@ -286,94 +125,18 @@ export async function registerCuriosityCli(params: {
         const runId = options.runId?.trim() || `curiosity-run-${Date.now()}`;
         const agentId = options.agent?.trim() || defaultAgentId;
         const timeoutSeconds = Number.parseInt(options.timeout ?? "900", 10) || 900;
-        const selectedManager = await manager();
-        const selectedGoals = await selectedManager.listGoalsByStatus(["selected", "in_progress"], 10);
-        const existing =
-          selectedGoals.find((goal) => goal.agentId === agentId) ?? selectedGoals[0];
-        const selection = existing
-          ? {
-              selected: true as const,
-              goal: existing,
-              reusedSelectedGoal: true,
-              adoptedFromAgentId: existing.agentId === agentId ? undefined : existing.agentId,
-            }
-          : parseBooleanOption(options.select, true)
-            ? await selectGoal({
-                manager: selectedManager,
-                agentId,
-                runId,
-                notify: parseBooleanOption(options.notify, true),
-                force: parseBooleanOption(options.force, false),
-              })
-            : { selected: false as const, reason: "no_selected_goal" };
-
-        if (!selection.selected) {
-          printJson({ selected: false, runId, agentId, reason: selection.reason });
-          return;
-        }
-
-        await selectedManager.markGoalInProgress({
-          goalId: selection.goal.goalId,
-          runId,
-          agentId,
-        });
-        const startedAt = Date.now();
-        const result = await runOpenClawAgent({
+        const result = await executeCuriosityRun({
+          manager: await manager(),
           agentId,
           runId,
-          message: renderGoalRunMessage(selection.goal),
           timeoutSeconds,
           gatewayUrl,
-        });
-        const success = result.exitCode === 0;
-        await selectedManager.recordObservation({
-          kind: success ? "assistant_output" : "tool_failure",
-          runId,
-          agentId,
-          success,
-          content: clampOutput(result.stdout || result.stderr),
-          metadata: {
-            command: "openclaw agent",
-            exitCode: result.exitCode,
-          },
-        });
-        const outcome = await selectedManager.finalizeAutonomousRun({
-          runId,
-          goalId: selection.goal.goalId,
-          agentId,
+          select: parseBooleanOption(options.select, true),
+          notifyStart: parseBooleanOption(options.notify, true),
+          force: parseBooleanOption(options.force, false),
           trigger: "curiosity-cli-run",
-          success,
-          durationMs: Date.now() - startedAt,
-          error: success ? undefined : clampOutput(result.stderr || result.stdout || "agent failed"),
         });
-        const refreshedGoal = await selectedManager.findGoalByRunId(runId);
-        const resultNotice = refreshedGoal
-          ? await selectedManager.notifyAutonomousFinish({
-              runId,
-              agentId,
-              goal: refreshedGoal,
-              success: outcome.success,
-              error: outcome.error,
-              summary: outcome.success ? clampOutput(result.stdout) : undefined,
-            })
-          : undefined;
-
-        printJson({
-          selected: true,
-          executed: true,
-          success: outcome.success,
-          runId,
-          agentId,
-          goalId: selection.goal.goalId,
-          adoptedFromAgentId: "adoptedFromAgentId" in selection
-            ? selection.adoptedFromAgentId
-            : undefined,
-          exitCode: result.exitCode,
-          stdout: clampOutput(result.stdout),
-          stderr: clampOutput(result.stderr),
-          outcome,
-          resultNotice,
-        });
+        printJson(result);
       },
     );
 

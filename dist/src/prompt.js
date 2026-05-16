@@ -48,6 +48,7 @@ export function renderAutonomousGoalPrompt(params) {
         bulletList([
             "Author the actual intention yourself from the available context; this prompt is only the drive signal.",
             "Choose the content domain by neutral opportunity selection: salience in local context, uncertainty, leverage, and reversibility. Do not treat the drive label as the topic.",
+            "If the available surface is web, search, or browser, use a research/web affordance first unless none is safely available.",
             "Do not send a user-visible meta announcement before acting; start with an allowed tool call unless no safe tool affordance exists.",
             `Take at least ${minimumSensingSteps} qualifying low-risk tool-backed steps before concluding; curiosity_inspect alone does not count.`,
             "A scan is not enough by itself: after read-only sensing, either take one safe follow-through step that changes, creates, checks, or verifies something, or report the evidenced blocker.",

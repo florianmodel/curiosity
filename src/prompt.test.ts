@@ -54,6 +54,7 @@ describe("renderAutonomousGoalPrompt", () => {
     expect(prompt).toContain("Do not send a user-visible meta announcement before acting");
     expect(prompt).toContain("A scan is not enough by itself");
     expect(prompt).toContain("Choose the content domain by neutral opportunity selection");
+    expect(prompt).toContain("use a research/web affordance first");
     expect(prompt).toContain("curiosity_inspect alone does not count");
   });
 });
