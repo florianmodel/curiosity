@@ -350,6 +350,110 @@ describe("CuriosityManager", () => {
     expect(throttled.reason).toBe("wake_interval_active");
   });
 
+  it("does not select self-maintenance goals before boredom reaches the drive gate", async () => {
+    const manager = await createManager({
+      goalSources: { ...NO_GOAL_SOURCES, failedToolAttempts: true },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 10,
+        saturationMinutes: 20,
+        wakeLevel: 0.5,
+      },
+    });
+    await manager.recordObservation({
+      kind: "tool_failure",
+      toolName: "read",
+      content: "Could not inspect the selected file.",
+    });
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-drive-gated",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(false);
+    if (!decision.selected) {
+      expect(decision.reason).toBe("no_candidates");
+    }
+  });
+
+  it("ignores infrastructure failures as curiosity fuel", async () => {
+    const manager = await createManager({
+      goalSources: { ...NO_GOAL_SOURCES, failedToolAttempts: true },
+      boredom: {
+        enabled: false,
+        wakeLevel: 0,
+      },
+    });
+    await manager.recordObservation({
+      kind: "tool_failure",
+      toolName: "tool",
+      content: 'invalid agent params: unknown agent id "default"',
+    });
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-infra-failure",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(false);
+    if (!decision.selected) {
+      expect(decision.reason).toBe("no_candidates");
+    }
+  });
+
+  it("stops retrying the same autonomous fingerprint after the attempt cap", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      actionPolicy: {
+        minimumSensingSteps: 2,
+        maxAttemptsPerGoal: 1,
+        retryCooldownMinutes: 0,
+      },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+        satiationMinutes: 0,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "External activity anchor.",
+    });
+    const first = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-attempt-cap-1",
+      trigger: "heartbeat",
+    });
+    expect(first.selected).toBe(true);
+    if (!first.selected) {
+      return;
+    }
+    await manager.canUseTool("run-attempt-cap-1", "read");
+    await manager.canUseTool("run-attempt-cap-1", "process");
+    await manager.finalizeAutonomousRun({
+      runId: "run-attempt-cap-1",
+      goalId: first.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: true,
+    });
+
+    const second = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-attempt-cap-2",
+      trigger: "heartbeat",
+    });
+
+    expect(second.selected).toBe(false);
+  });
+
   it("marks autonomous runs failed when they end without a sensing step", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },
@@ -380,6 +484,41 @@ describe("CuriosityManager", () => {
 
     expect(goal.status).toBe("failed");
     expect(goal.outcome?.minimumActionSatisfied).toBe(false);
+  });
+
+  it("requires the configured number of sensing steps", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      actionPolicy: { minimumSensingSteps: 2 },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-one-step",
+      trigger: "heartbeat",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+
+    await manager.canUseTool("run-one-step", "read");
+    await manager.finalizeAutonomousRun({
+      runId: "run-one-step",
+      goalId: decision.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: true,
+    });
+    const inspected = await manager.inspectIdentifier(decision.goal.goalId);
+    const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
+
+    expect(goal.status).toBe("failed");
+    expect(goal.outcome?.sensingSteps).toBe(1);
+    expect(goal.outcome?.requiredSensingSteps).toBe(2);
   });
 
   it("can pause and resume selection", async () => {

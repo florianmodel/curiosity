@@ -198,6 +198,7 @@ export function register(api) {
                         goal: decision.goal,
                         budgetUsage: decision.budgetUsage,
                         threshold: pluginConfig.thresholds.act,
+                        minimumSensingSteps: pluginConfig.actionPolicy.minimumSensingSteps,
                     }),
                 };
             }

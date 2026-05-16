@@ -8,11 +8,12 @@ export function renderAutonomousGoalPrompt(params: {
   goal: GoalRecord;
   budgetUsage: BudgetUsage;
   threshold: number;
+  minimumSensingSteps: number;
 }): string {
-  const { goal, budgetUsage, threshold } = params;
+  const { goal, budgetUsage, threshold, minimumSensingSteps } = params;
   return [
     "## Self-Authored Curiosity Run",
-    "This heartbeat is available for one bounded internally chosen curiosity move.",
+    "This heartbeat is not a status check. Choose a bounded intention, then act through tools.",
     `Goal ID: ${goal.goalId}`,
     `Policy: ${goal.selectedByPolicy}`,
     `Act threshold: ${threshold.toFixed(2)}`,
@@ -31,8 +32,9 @@ export function renderAutonomousGoalPrompt(params: {
     ]),
     "Constraints:",
     bulletList([
-      "Author the actual intention yourself from the available context; this prompt is only a drive signal.",
-      "Take at least one low-risk sensing or inspection step through an allowed tool before concluding.",
+      "Start by choosing the first allowed sensing tool call; do not spend the turn explaining the plan first.",
+      "Author the actual intention yourself from the available context; this prompt is only the drive signal.",
+      `Take at least ${minimumSensingSteps} low-risk sensing or inspection steps through allowed tools before concluding.`,
       "If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
       "Pursue at most one autonomous intention in this run.",
       "Stay within existing OpenClaw safety, approvals, and tool policies.",
