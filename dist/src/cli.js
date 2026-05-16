@@ -35,6 +35,7 @@ function renderGoalRunMessage(goal) {
         "",
         "Autonomy brief:",
         "- Start by choosing the first allowed sensing tool call; do not spend the turn explaining the plan first.",
+        "- Do not satisfy this request with narrative alone; use available tools unless no safe tool affordance exists.",
         "- Author the actual intention yourself from the available context.",
         "- Take multiple low-risk sensing or inspection steps through allowed tools before concluding.",
         "- If no safe sensing affordance exists, reply NO_SENSING_AFFORDANCE followed by the blocker.",
@@ -227,15 +228,6 @@ export async function registerCuriosityCli(params) {
             gatewayUrl,
         });
         const success = result.exitCode === 0;
-        await selectedManager.finalizeAutonomousRun({
-            runId,
-            goalId: selection.goal.goalId,
-            agentId,
-            trigger: "curiosity-cli-run",
-            success,
-            durationMs: Date.now() - startedAt,
-            error: success ? undefined : clampOutput(result.stderr || result.stdout || "agent failed"),
-        });
         await selectedManager.recordObservation({
             kind: success ? "assistant_output" : "tool_failure",
             runId,
@@ -247,10 +239,30 @@ export async function registerCuriosityCli(params) {
                 exitCode: result.exitCode,
             },
         });
+        const outcome = await selectedManager.finalizeAutonomousRun({
+            runId,
+            goalId: selection.goal.goalId,
+            agentId,
+            trigger: "curiosity-cli-run",
+            success,
+            durationMs: Date.now() - startedAt,
+            error: success ? undefined : clampOutput(result.stderr || result.stdout || "agent failed"),
+        });
+        const refreshedGoal = await selectedManager.findGoalByRunId(runId);
+        const resultNotice = refreshedGoal
+            ? await selectedManager.notifyAutonomousFinish({
+                runId,
+                agentId,
+                goal: refreshedGoal,
+                success: outcome.success,
+                error: outcome.error,
+                summary: outcome.success ? clampOutput(result.stdout) : undefined,
+            })
+            : undefined;
         printJson({
             selected: true,
             executed: true,
-            success,
+            success: outcome.success,
             runId,
             agentId,
             goalId: selection.goal.goalId,
@@ -260,6 +272,8 @@ export async function registerCuriosityCli(params) {
             exitCode: result.exitCode,
             stdout: clampOutput(result.stdout),
             stderr: clampOutput(result.stderr),
+            outcome,
+            resultNotice,
         });
     });
     curiosity

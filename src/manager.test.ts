@@ -509,12 +509,14 @@ describe("CuriosityManager", () => {
       agentId: "main",
       trigger: "heartbeat",
       success: true,
+      error: "model auth failed",
     });
     const inspected = await manager.inspectIdentifier(decision.goal.goalId);
     const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
 
     expect(goal.status).toBe("failed");
     expect(goal.outcome?.minimumActionSatisfied).toBe(false);
+    expect(String(goal.outcome?.error)).toContain("model auth failed");
   });
 
   it("requires the configured number of sensing steps", async () => {
@@ -695,6 +697,54 @@ describe("CuriosityManager", () => {
         runId: "run-notify",
         agentId: "main",
         goal: decision.goal,
+        fetchFn,
+      }),
+    ).resolves.toEqual({ sent: true });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends an autonomous-result notification when configured", async () => {
+    const manager = await createManager({
+      notifications: {
+        autonomousStart: {
+          enabled: true,
+          provider: "telegram",
+          telegram: {
+            botToken: "bot-token",
+            chatId: "12345",
+            apiBaseUrl: "https://telegram.example",
+          },
+        },
+      },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      channelId: "telegram",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-result-notify",
+      trigger: "heartbeat",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+    const fetchFn = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(String(body.text)).toContain("Curiosity run needs attention");
+      expect(String(body.text)).toContain("model auth failed");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    await expect(
+      manager.notifyAutonomousFinish({
+        runId: "run-result-notify",
+        agentId: "main",
+        goal: decision.goal,
+        success: false,
+        error: "model auth failed",
         fetchFn,
       }),
     ).resolves.toEqual({ sent: true });

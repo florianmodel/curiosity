@@ -4,7 +4,7 @@ import path from "node:path";
 import { resolveCuriosityWorkspaceDir } from "./config.js";
 import { renderAwarenessPrompt } from "./prompt.js";
 import { rankGoalsByScore, extractKeywords, scoreCandidate } from "./scoring.js";
-import { sendAutonomousStartNotice } from "./notifications.js";
+import { sendAutonomousResultNotice, sendAutonomousStartNotice } from "./notifications.js";
 import { openCuriosityDatabase } from "./sqlite.js";
 const POLICY_NAME = "balanced_ensemble_v1";
 const IDLE_ANCHOR_META_KEY = "idle_anchor_at";
@@ -539,6 +539,13 @@ export class CuriosityManager {
             .prepare(`SELECT goal_id FROM goals WHERE last_run_id = ? LIMIT 1`)
             .get(runId);
         return asString(row?.goal_id);
+    }
+    async findGoalByRunId(runId) {
+        const db = await this.ensureDb();
+        const row = db
+            .prepare(`SELECT * FROM goals WHERE last_run_id = ? LIMIT 1`)
+            .get(runId);
+        return row ? this.parseGoalRow(row) : null;
     }
     async markRunGoalInProgress(runId) {
         const goalId = await this.getGoalIdForRun(runId);
@@ -1166,11 +1173,14 @@ export class CuriosityManager {
         if (this.config.boredom.satiationMinutes > 0) {
             this.writeNumericMeta(db, BOREDOM_SATIATED_UNTIL_META_KEY, satiatedUntil);
         }
+        const minimumActionError = `autonomous curiosity ended before taking ${this.config.actionPolicy.minimumSensingSteps} qualifying tool-backed step(s) or declaring no safe tool affordance`;
         const outcome = {
             success,
             error: metMinimumAction
                 ? params.error
-                : `autonomous curiosity ended before taking ${this.config.actionPolicy.minimumSensingSteps} qualifying tool-backed step(s) or declaring no safe tool affordance`,
+                : params.error
+                    ? `${minimumActionError}; agent error: ${clampContent(params.error)}`
+                    : minimumActionError,
             durationMs: params.durationMs,
             minimumActionSatisfied: metMinimumAction,
             sensingSteps,
@@ -1194,6 +1204,7 @@ export class CuriosityManager {
             runId: params.runId,
             payload: outcome,
         });
+        return outcome;
     }
     countAutonomousSensingSteps(db, runId) {
         const eventRows = db
@@ -1239,6 +1250,28 @@ export class CuriosityManager {
         await this.appendAuditEvent({
             ts: now,
             eventType: result.sent ? "autonomous_start_notification_sent" : "autonomous_start_notification_skipped",
+            goalId: params.goal.goalId,
+            runId: params.runId,
+            payload: result,
+        });
+        return result;
+    }
+    async notifyAutonomousFinish(params) {
+        const now = params.now ?? Date.now();
+        const result = await sendAutonomousResultNotice({
+            config: this.config.notifications.autonomousStart,
+            goal: params.goal,
+            agentId: params.agentId,
+            runId: params.runId,
+            success: params.success,
+            error: params.error,
+            summary: params.summary,
+            fetchFn: params.fetchFn,
+            logger: this.logger,
+        });
+        await this.appendAuditEvent({
+            ts: now,
+            eventType: result.sent ? "autonomous_result_notification_sent" : "autonomous_result_notification_skipped",
             goalId: params.goal.goalId,
             runId: params.runId,
             payload: result,

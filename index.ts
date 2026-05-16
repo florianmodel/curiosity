@@ -249,13 +249,15 @@ export function register(api: OpenClawPluginApi) {
     });
 
     api.on("before_tool_call", async (event, ctx) => {
-      const activeRun = getActiveRun(event.runId ?? ctx.runId);
-      if (!activeRun) {
+      const runId = event.runId ?? ctx.runId;
+      const activeRun = getActiveRun(runId);
+      const workspaceDir = resolveWorkspaceDir(api, undefined, activeRun?.agentId ?? ctx.agentId);
+      const manager = await resolveManager(workspaceDir);
+      const runGoal = activeRun ? null : runId ? await manager.findGoalByRunId(runId) : null;
+      if (!activeRun && !runGoal) {
         return;
       }
-      const workspaceDir = resolveWorkspaceDir(api, undefined, activeRun.agentId);
-      const manager = await resolveManager(workspaceDir);
-      const allowed = await manager.canUseTool(activeRun.runId, event.toolName);
+      const allowed = await manager.canUseTool(activeRun?.runId ?? runId ?? "", event.toolName);
       if (!allowed.allowed) {
         return {
           block: true,
@@ -364,7 +366,7 @@ export function register(api: OpenClawPluginApi) {
       }
       const workspaceDir = resolveWorkspaceDir(api, ctx.workspaceDir, activeRun.agentId);
       const manager = await resolveManager(workspaceDir);
-      await manager.finalizeAutonomousRun({
+      const outcome = await manager.finalizeAutonomousRun({
         runId: activeRun.runId,
         goalId: activeRun.goalId,
         agentId: activeRun.agentId,
@@ -373,6 +375,16 @@ export function register(api: OpenClawPluginApi) {
         durationMs: event.durationMs,
         error: event.error,
       });
+      const goal = await manager.findGoalByRunId(activeRun.runId);
+      if (goal) {
+        await manager.notifyAutonomousFinish({
+          runId: activeRun.runId,
+          agentId: activeRun.agentId,
+          goal,
+          success: outcome.success,
+          error: outcome.error,
+        });
+      }
       clearActiveRun(ctx.runId);
     });
 }
