@@ -975,7 +975,26 @@ export class CuriosityManager {
             candidates.push(...this.buildLowCoverageCandidates(params.observations).slice(0, 4));
         }
         const deduped = new Map();
-        for (const candidate of candidates.filter((candidate) => this.isCandidateAllowedByDrive(candidate, params.boredom))) {
+        const driveAllowedCandidates = candidates.filter((candidate) => params.force === true || this.isCandidateAllowedByDrive(candidate, params.boredom));
+        if (params.force === true && driveAllowedCandidates.length === 0) {
+            driveAllowedCandidates.push({
+                source: "self_authored_intention",
+                title: "Manual self-authored curiosity run",
+                evidence: [
+                    "A manual curiosity run was forced from the CLI.",
+                    "No other candidate source produced an eligible goal, so the agent must author one bounded intention from available local context.",
+                ],
+                proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
+                targetSurface: "workspace",
+                estimatedCost: 160,
+                risk: 0.06,
+                keywords: extractKeywords("manual self authored curiosity workspace"),
+                metadata: {
+                    forced: true,
+                },
+            });
+        }
+        for (const candidate of driveAllowedCandidates) {
             const fingerprint = stableFingerprint({
                 source: candidate.source,
                 title: candidate.title,
@@ -1064,6 +1083,7 @@ export class CuriosityManager {
             openGoals,
             recentCompleted,
             boredom,
+            force: params.ignoreRetryBlocks === true,
         });
         if (candidates.length === 0) {
             await this.appendAuditEvent({
