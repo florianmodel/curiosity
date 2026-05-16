@@ -684,6 +684,8 @@ describe("CuriosityManager", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       expect(body.chat_id).toBe("12345");
       expect(String(body.text)).toContain("Curiosity is starting a run");
+      expect(String(body.text)).toContain("act first with allowed tools");
+      expect(String(body.text)).not.toContain("stop after one pass");
       expect(String(body.text)).toContain("pending uncertainty");
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as typeof fetch;
