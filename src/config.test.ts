@@ -6,6 +6,14 @@ describe("resolveCuriosityConfig", () => {
     expect(resolveCuriosityConfig(undefined)).toEqual(DEFAULT_CURIOSITY_CONFIG);
   });
 
+  it("defaults external budgets high enough for a multi-step web pass", () => {
+    const resolved = resolveCuriosityConfig(undefined);
+
+    expect(resolved.budgets.externalActionsPerHour).toBeGreaterThanOrEqual(
+      resolved.actionPolicy.minimumSensingSteps,
+    );
+  });
+
   it("merges valid overrides", () => {
     const resolved = resolveCuriosityConfig({
       budgets: { autonomousRunsPerDay: 5 },

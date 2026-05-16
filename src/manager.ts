@@ -1075,23 +1075,35 @@ export class CuriosityManager {
 
     if (this.config.boredom.enabled && params.boredom.level >= this.config.boredom.wakeLevel) {
       const idleMinutes = Math.round(params.boredom.idleMinutes * 10) / 10;
+      const targetSurface = this.config.actionPolicy.allowExternalActions ? "web" : "workspace";
       candidates.push({
         source: "self_authored_intention",
-        title: "Use idle time for one concrete autonomous outcome",
+        title:
+          targetSurface === "web"
+            ? "Use idle time for one concrete web exploration"
+            : "Use idle time for one concrete autonomous outcome",
         evidence: [
           `No meaningful external activity has been observed since ${new Date(params.boredom.idleSince).toISOString()}.`,
           `Boredom level is ${params.boredom.level.toFixed(2)} after ${idleMinutes} idle minutes.`,
+          targetSurface === "web"
+            ? "External actions are allowed, so the first autonomous attempt should look outside the local workspace."
+            : "External actions are disabled, so the run is limited to local workspace affordances.",
         ],
         proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
-        targetSurface: "workspace",
-        estimatedCost: 160,
-        risk: 0.06,
-        keywords: extractKeywords("self authored boredom drive curiosity"),
+        targetSurface,
+        estimatedCost: targetSurface === "web" ? 320 : 160,
+        risk: targetSurface === "web" ? 0.1 : 0.06,
+        keywords: extractKeywords(
+          targetSurface === "web"
+            ? "self authored boredom drive curiosity web research external"
+            : "self authored boredom drive curiosity",
+        ),
         metadata: {
           idleSince: params.boredom.idleSince,
           idleMs: params.boredom.idleMs,
           boredomLevel: params.boredom.level,
           scoreBonus: params.boredom.scoreBonus,
+          targetSurface,
         },
       });
     }

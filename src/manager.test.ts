@@ -288,8 +288,43 @@ describe("CuriosityManager", () => {
     expect(decision.selected).toBe(true);
     if (decision.selected) {
       expect(decision.goal.source).toBe("self_authored_intention");
-      expect(decision.goal.targetSurface).toBe("workspace");
+      expect(decision.goal.targetSurface).toBe("web");
+      expect(decision.goal.title).toContain("web exploration");
       expect(decision.goal.scoresByModel.boredom_drive).toBeGreaterThan(0.9);
+    }
+  });
+
+  it("keeps boredom exploration local when external actions are disabled", async () => {
+    const manager = await createManager({
+      goalSources: NO_GOAL_SOURCES,
+      thresholds: { act: 0.6 },
+      actionPolicy: { allowExternalActions: false },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        maxScoreBonus: 0.35,
+        wakeLevel: 0.6,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "Routine heartbeat completed.",
+    });
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-idle-local",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(true);
+    if (decision.selected) {
+      expect(decision.goal.targetSurface).toBe("workspace");
+      expect(decision.goal.evidence).toContain(
+        "External actions are disabled, so the run is limited to local workspace affordances.",
+      );
     }
   });
 

@@ -1,15 +1,15 @@
 # OpenClaw Curiosity Plugin
 
-`curiosity` is an overlay plugin that lets OpenClaw discover and pursue its own bounded goals during heartbeat-triggered runs.
+`curiosity` is an executor-backed plugin that lets OpenClaw discover and pursue its own bounded goals without waiting for a user prompt.
 
 ## What it does
 
 - Tracks drive signals from recent observations
 - Scores them with several intrinsic-motivation-inspired heuristics
-- Selects one high-value goal on heartbeat runs when the score clears a threshold
-- Adds an idle-time boredom drive that can wake a self-authored run
+- Selects one high-value goal when the score clears a threshold
+- Adds an idle-time boredom drive that can start an executor-backed self-authored run
 - Escalates bored runs toward one concrete, tool-backed, reversible outcome instead of a meta announcement or bare inspection
-- Optionally sends a Telegram notice when an autonomous curiosity run starts
+- Sends autonomous result receipts through the configured Telegram notice path, with background boredom runs suppressing the start notice by default
 - Logs every scored goal, selected goal, external action, and token budget event
 - Exposes queue/inspect/compare/pause/resume surfaces through both a tool and CLI
 
@@ -64,8 +64,8 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
           "budgets": {
             "autonomousRunsPerDay": 48,
             "autonomousTokensPerDay": 50000,
-            "externalActionsPerDay": 3,
-            "externalActionsPerHour": 1
+            "externalActionsPerDay": 24,
+            "externalActionsPerHour": 6
           },
           "thresholds": {
             "act": 0.6,
@@ -123,13 +123,13 @@ openclaw curiosity resume
 
 ## Notes
 
-- Heartbeat remains a selection surface, and boredom can proactively request a heartbeat once the drive crosses `boredom.wakeLevel`.
+- Heartbeat remains a selection surface, but boredom now starts the curiosity executor directly once the drive crosses `boredom.wakeLevel`.
 - To limit curiosity selection by time of day, set `actionPolicy.activeHours` to `configured-window` and provide `actionPolicy.activeWindow` with `start`, `end`, and optional `timeZone` values.
-- To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The same Telegram config now sends both the start notice and the completion/failure notice.
+- To get curiosity receipts, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. Manual CLI runs can still send a start notice, while background boredom runs send the completion/failure receipt without a start announcement.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
-- Curiosity prompts carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
+- Curiosity executor runs carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
 - Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.
-- The first visible response should not be a run announcement when tools are available. The run should act first, then report the outcome and evidence.
+- The first visible background notification should be the outcome receipt. The run should act first, then report the outcome and evidence.
 - `curiosity_inspect` is useful for human/debug inspection, but it does not count as a qualifying autonomous sensing step by itself.
 - Infrastructure failures and repeated goal fingerprints are damped so curiosity does not orbit its own gateway errors.
 - `failedToolAttempts` and `skillOpportunities` default off; enable them only when you want meta-maintenance to compete with boredom-driven exploration.
