@@ -235,6 +235,7 @@ export function register(api: OpenClawPluginApi) {
               goal: decision.goal,
               budgetUsage: decision.budgetUsage,
               threshold: pluginConfig.thresholds.act,
+              minimumSensingSteps: pluginConfig.actionPolicy.minimumSensingSteps,
             }),
           };
         }

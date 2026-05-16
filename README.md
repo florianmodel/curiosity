@@ -61,7 +61,7 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
         "enabled": true,
         "config": {
           "budgets": {
-            "autonomousRunsPerDay": 10,
+            "autonomousRunsPerDay": 48,
             "autonomousTokensPerDay": 50000,
             "externalActionsPerDay": 3,
             "externalActionsPerHour": 1
@@ -73,19 +73,22 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
           },
           "boredom": {
             "enabled": true,
-            "idleStartMinutes": 5,
-            "saturationMinutes": 60,
+            "idleStartMinutes": 2,
+            "saturationMinutes": 15,
             "maxScoreBonus": 0.35,
-            "wakeLevel": 0.65,
-            "wakeCheckMinutes": 1,
+            "wakeLevel": 0.25,
+            "wakeCheckMinutes": 0.5,
             "wakeMinIntervalMinutes": 5,
-            "satiationMinutes": 20
+            "satiationMinutes": 5
           },
           "actionPolicy": {
             "allowExternalActions": true,
             "externalTargetPolicy": "any-configured-surface",
             "disagreementFallback": "explore-anyway",
-            "activeHours": "always-on"
+            "activeHours": "always-on",
+            "minimumSensingSteps": 2,
+            "maxAttemptsPerGoal": 2,
+            "retryCooldownMinutes": 120
           },
           "notifications": {
             "autonomousStart": {
@@ -123,5 +126,7 @@ openclaw curiosity resume
 - To get a heads-up when curiosity starts acting on its own, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. The notice is sent only when a heartbeat selects an autonomous goal.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
 - Curiosity prompts carry drive signals and constraints; the agent must author its own bounded intention from inside the run.
+- Infrastructure failures and repeated goal fingerprints are damped so curiosity does not orbit its own gateway errors.
+- `failedToolAttempts` and `skillOpportunities` default off; enable them only when you want meta-maintenance to compete with boredom-driven exploration.
 - The plugin only adds guardrails and autonomous-goal context. It does not bypass existing OpenClaw approvals or safety controls.
 - The current implementation is heuristic and logging-heavy by design, so model comparisons are visible before any future learned policy is attempted.

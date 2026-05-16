@@ -19,7 +19,12 @@ describe("resolveCuriosityConfig", () => {
         wakeMinIntervalMinutes: 7,
         satiationMinutes: 11,
       },
-      actionPolicy: { externalTargetPolicy: "research-web-only" },
+      actionPolicy: {
+        externalTargetPolicy: "research-web-only",
+        minimumSensingSteps: 3,
+        maxAttemptsPerGoal: 4,
+        retryCooldownMinutes: 30,
+      },
       notifications: {
         autonomousStart: {
           enabled: true,
@@ -44,6 +49,9 @@ describe("resolveCuriosityConfig", () => {
       satiationMinutes: 11,
     });
     expect(resolved.actionPolicy.externalTargetPolicy).toBe("research-web-only");
+    expect(resolved.actionPolicy.minimumSensingSteps).toBe(3);
+    expect(resolved.actionPolicy.maxAttemptsPerGoal).toBe(4);
+    expect(resolved.actionPolicy.retryCooldownMinutes).toBe(30);
     expect(resolved.budgets.externalActionsPerDay).toBe(
       DEFAULT_CURIOSITY_CONFIG.budgets.externalActionsPerDay,
     );

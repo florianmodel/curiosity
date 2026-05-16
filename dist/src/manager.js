@@ -41,6 +41,9 @@ function isHeartbeatAckText(text) {
     }
     return /^HEARTBEAT_OK\b/.test(normalized) || /\bHEARTBEAT_OK$/.test(normalized);
 }
+function isInfrastructureFailureText(text) {
+    return /(?:unknown agent id|invalid agent params|gateway closed|service restart|gateway agent request timed out|timed out after|connection refused|econnrefused|websocket|socket hang up)/i.test(text);
+}
 function stableFingerprint(input) {
     return [input.source, input.targetSurface.toLowerCase(), input.title.toLowerCase()]
         .map((value) => value.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))
@@ -343,6 +346,9 @@ export class CuriosityManager {
             return trigger !== "heartbeat" && !isHeartbeatAckText(input.content ?? "");
         }
         if (input.kind === "tool_success" || input.kind === "tool_failure") {
+            if (input.kind === "tool_failure" && isInfrastructureFailureText(input.content ?? "")) {
+                return false;
+            }
             return input.toolName !== "curiosity_inspect";
         }
         if (input.kind === "message_received") {
@@ -711,6 +717,25 @@ export class CuriosityManager {
     configuredSurfaces() {
         return [...this.configuredSurfaceSet];
     }
+    isCandidateAllowedByDrive(candidate, boredom) {
+        if (candidate.source === "unresolved_user_ask") {
+            return true;
+        }
+        return boredom.level >= this.config.boredom.wakeLevel;
+    }
+    goalRetryBlocked(goal, now) {
+        if (goal.source === "unresolved_user_ask") {
+            return null;
+        }
+        if (goal.attempts >= this.config.actionPolicy.maxAttemptsPerGoal) {
+            return "max_attempts_reached";
+        }
+        const retryCooldownMs = this.config.actionPolicy.retryCooldownMinutes * 60 * 1000;
+        if (goal.attempts > 0 && retryCooldownMs > 0 && now - goal.updatedAt < retryCooldownMs) {
+            return "retry_cooldown_active";
+        }
+        return null;
+    }
     buildLowCoverageCandidates(observations) {
         const candidates = [];
         const recentChannels = new Set(observations
@@ -787,10 +812,10 @@ export class CuriosityManager {
             const idleMinutes = Math.round(params.boredom.idleMinutes * 10) / 10;
             candidates.push({
                 source: "self_authored_intention",
-                title: `Self-authored curiosity after ${idleMinutes} idle minutes`,
+                title: "Self-authored curiosity under boredom",
                 evidence: [
                     `No meaningful external activity has been observed since ${new Date(params.boredom.idleSince).toISOString()}.`,
-                    `Boredom level is ${params.boredom.level.toFixed(2)} with score bonus ${params.boredom.scoreBonus.toFixed(3)}.`,
+                    `Boredom level is ${params.boredom.level.toFixed(2)} after ${idleMinutes} idle minutes.`,
                 ],
                 proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
                 targetSurface: "workspace",
@@ -846,7 +871,10 @@ export class CuriosityManager {
             }
         }
         if (this.config.goalSources.failedToolAttempts) {
-            for (const observation of params.observations.filter((item) => item.kind === "tool_failure").slice(0, 8)) {
+            for (const observation of params.observations
+                .filter((item) => item.kind === "tool_failure")
+                .filter((item) => !isInfrastructureFailureText(item.content))
+                .slice(0, 4)) {
                 const toolName = observation.toolName ?? "tool";
                 candidates.push({
                     source: "failed_tool_attempt",
@@ -866,7 +894,10 @@ export class CuriosityManager {
         }
         if (this.config.goalSources.newlyDiscoveredEntities) {
             const keywordFrequency = new Map();
-            for (const observation of params.observations.slice(0, 40)) {
+            const entityObservations = params.observations
+                .filter((observation) => observation.kind === "message_received")
+                .slice(0, 40);
+            for (const observation of entityObservations) {
                 const keywords = Array.isArray(observation.metadata.keywords) &&
                     observation.metadata.keywords.every((value) => typeof value === "string")
                     ? observation.metadata.keywords
@@ -937,7 +968,7 @@ export class CuriosityManager {
             candidates.push(...this.buildLowCoverageCandidates(params.observations).slice(0, 4));
         }
         const deduped = new Map();
-        for (const candidate of candidates) {
+        for (const candidate of candidates.filter((candidate) => this.isCandidateAllowedByDrive(candidate, params.boredom))) {
             const fingerprint = stableFingerprint({
                 source: candidate.source,
                 title: candidate.title,
@@ -1061,12 +1092,28 @@ export class CuriosityManager {
             });
         }
         const ranked = rankGoalsByScore(scoredGoals);
-        const selected = ranked.find((goal) => goal.scoresByModel.active_ensemble >= this.config.thresholds.act);
+        const blockedGoals = [];
+        const selected = ranked.find((goal) => {
+            if (goal.scoresByModel.active_ensemble < this.config.thresholds.act) {
+                return false;
+            }
+            const blockedReason = this.goalRetryBlocked(goal, now);
+            if (blockedReason) {
+                blockedGoals.push({ goalId: goal.goalId, title: goal.title, reason: blockedReason });
+                return false;
+            }
+            return true;
+        });
         if (!selected) {
             await this.appendAuditEvent({
                 eventType: "selection_skipped",
                 runId: params.runId,
-                payload: { reason: "below_threshold", candidateCount: candidates.length, boredom },
+                payload: {
+                    reason: blockedGoals.length > 0 ? "retry_blocked" : "below_threshold",
+                    candidateCount: candidates.length,
+                    boredom,
+                    blockedGoals,
+                },
             });
             return {
                 selected: false,
@@ -1109,7 +1156,9 @@ export class CuriosityManager {
     }
     async finalizeAutonomousRun(params) {
         const db = await this.ensureDb();
-        const metMinimumAction = this.autonomousRunMetMinimumAction(db, params.runId);
+        const sensingSteps = this.countAutonomousSensingSteps(db, params.runId);
+        const metMinimumAction = sensingSteps >= this.config.actionPolicy.minimumSensingSteps ||
+            this.autonomousRunReportedNoSensingAffordance(db, params.runId);
         const success = params.success && metMinimumAction;
         const status = success ? "completed" : "failed";
         const now = Date.now();
@@ -1121,9 +1170,11 @@ export class CuriosityManager {
             success,
             error: metMinimumAction
                 ? params.error
-                : "autonomous curiosity ended before taking a sensing step",
+                : `autonomous curiosity ended before taking ${this.config.actionPolicy.minimumSensingSteps} sensing steps`,
             durationMs: params.durationMs,
             minimumActionSatisfied: metMinimumAction,
+            sensingSteps,
+            requiredSensingSteps: this.config.actionPolicy.minimumSensingSteps,
             finishedAt: now,
             ...(this.config.boredom.satiationMinutes > 0 ? { satiatedUntil } : {}),
         };
@@ -1144,15 +1195,15 @@ export class CuriosityManager {
             payload: outcome,
         });
     }
-    autonomousRunMetMinimumAction(db, runId) {
+    countAutonomousSensingSteps(db, runId) {
         const eventRow = db
             .prepare(`SELECT COUNT(*) AS count
          FROM events
          WHERE run_id = ? AND event_type IN ('tool_allowed', 'external_action')`)
             .get(runId);
-        if ((eventRow.count ?? 0) > 0) {
-            return true;
-        }
+        return eventRow.count ?? 0;
+    }
+    autonomousRunReportedNoSensingAffordance(db, runId) {
         const assistantRows = db
             .prepare(`SELECT content
          FROM observations

@@ -204,6 +204,21 @@
               "configured-window"
             ]
           },
+          "minimumSensingSteps": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Minimum allowed tool or external-action steps before an autonomous run can count as successful."
+          },
+          "maxAttemptsPerGoal": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum autonomous attempts for one goal fingerprint before it stops being selected."
+          },
+          "retryCooldownMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minutes to wait before retrying the same goal fingerprint after an attempt."
+          },
           "activeWindow": {
             "type": "object",
             "additionalProperties": false,

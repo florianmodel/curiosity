@@ -8,7 +8,7 @@ export const DEFAULT_SHADOW_MODELS = [
 ];
 export const DEFAULT_CURIOSITY_CONFIG = {
     budgets: {
-        autonomousRunsPerDay: 10,
+        autonomousRunsPerDay: 48,
         autonomousTokensPerDay: 50_000,
         externalActionsPerDay: 3,
         externalActionsPerHour: 1,
@@ -17,10 +17,10 @@ export const DEFAULT_CURIOSITY_CONFIG = {
         bootstrapExploration: true,
         unresolvedUserAsks: true,
         staleOpenQuestions: true,
-        failedToolAttempts: true,
+        failedToolAttempts: false,
         newlyDiscoveredEntities: true,
         lowCoverageSurfaces: true,
-        skillOpportunities: true,
+        skillOpportunities: false,
         externalFollowUps: true,
     },
     ensembleWeights: {
@@ -36,13 +36,13 @@ export const DEFAULT_CURIOSITY_CONFIG = {
     },
     boredom: {
         enabled: true,
-        idleStartMinutes: 5,
-        saturationMinutes: 60,
+        idleStartMinutes: 2,
+        saturationMinutes: 15,
         maxScoreBonus: 0.35,
-        wakeLevel: 0.65,
-        wakeCheckMinutes: 1,
+        wakeLevel: 0.25,
+        wakeCheckMinutes: 0.5,
         wakeMinIntervalMinutes: 5,
-        satiationMinutes: 20,
+        satiationMinutes: 5,
     },
     shadowModels: [...DEFAULT_SHADOW_MODELS],
     logging: {
@@ -54,6 +54,9 @@ export const DEFAULT_CURIOSITY_CONFIG = {
         externalTargetPolicy: "any-configured-surface",
         disagreementFallback: "explore-anyway",
         activeHours: "always-on",
+        minimumSensingSteps: 2,
+        maxAttemptsPerGoal: 2,
+        retryCooldownMinutes: 120,
     },
     notifications: {
         autonomousStart: {
@@ -186,6 +189,21 @@ export const curiosityPluginConfigSchemaJson = {
                 activeHours: {
                     type: "string",
                     enum: ["always-on", "configured-window"],
+                },
+                minimumSensingSteps: {
+                    type: "integer",
+                    minimum: 1,
+                    description: "Minimum allowed tool or external-action steps before an autonomous run can count as successful.",
+                },
+                maxAttemptsPerGoal: {
+                    type: "integer",
+                    minimum: 1,
+                    description: "Maximum autonomous attempts for one goal fingerprint before it stops being selected.",
+                },
+                retryCooldownMinutes: {
+                    type: "number",
+                    minimum: 0,
+                    description: "Minutes to wait before retrying the same goal fingerprint after an attempt.",
                 },
                 activeWindow: {
                     type: "object",
@@ -434,6 +452,9 @@ export function resolveCuriosityConfig(raw) {
                 : DEFAULT_CURIOSITY_CONFIG.actionPolicy.disagreementFallback,
             activeHours,
             ...(activeHours === "configured-window" ? { activeWindow } : {}),
+            minimumSensingSteps: integerOrDefault(actionPolicy.minimumSensingSteps, DEFAULT_CURIOSITY_CONFIG.actionPolicy.minimumSensingSteps, { min: 1 }),
+            maxAttemptsPerGoal: integerOrDefault(actionPolicy.maxAttemptsPerGoal, DEFAULT_CURIOSITY_CONFIG.actionPolicy.maxAttemptsPerGoal, { min: 1 }),
+            retryCooldownMinutes: numberOrDefault(actionPolicy.retryCooldownMinutes, DEFAULT_CURIOSITY_CONFIG.actionPolicy.retryCooldownMinutes, { min: 0 }),
         },
         notifications: {
             autonomousStart: {

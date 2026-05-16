@@ -103,6 +103,9 @@ export type CuriosityConfig = {
     disagreementFallback: DisagreementFallback;
     activeHours: "always-on" | "configured-window";
     activeWindow?: ActiveWindowConfig;
+    minimumSensingSteps: number;
+    maxAttemptsPerGoal: number;
+    retryCooldownMinutes: number;
   };
   notifications: {
     autonomousStart: AutonomousStartNotificationConfig;
