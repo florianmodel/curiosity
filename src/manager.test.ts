@@ -755,6 +755,47 @@ describe("CuriosityManager", () => {
     );
   });
 
+  it("counts observed gateway tool summaries as autonomous sensing steps", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      actionPolicy: { minimumSensingSteps: 2 },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "curiosity-run-tool-summary",
+      trigger: "curiosity-executor",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+
+    await manager.recordObservedToolCalls({
+      runId: "curiosity-run-tool-summary",
+      agentId: "main",
+      toolNames: ["web_search", "web_fetch"],
+      callCount: 2,
+      source: "test_tool_summary",
+    });
+    await manager.finalizeAutonomousRun({
+      runId: "curiosity-run-tool-summary",
+      goalId: decision.goal.goalId,
+      agentId: "main",
+      trigger: "curiosity-executor",
+      success: true,
+    });
+    const inspected = await manager.inspectIdentifier(decision.goal.goalId);
+    const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
+
+    expect(goal.status).toBe("completed");
+    expect(goal.outcome?.sensingSteps).toBe(2);
+    expect(goal.outcome?.minimumActionSatisfied).toBe(true);
+  });
+
   it("does not count curiosity_inspect as a qualifying sensing step", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },

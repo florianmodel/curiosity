@@ -27,6 +27,12 @@ export type CuriosityAgentRunResult = {
   exitCode: number | null;
   stdout: string;
   stderr: string;
+  meta?: Record<string, unknown>;
+};
+
+export type AgentToolSummary = {
+  toolNames: string[];
+  callCount: number;
 };
 
 export type CuriosityExecutionResult =
@@ -203,6 +209,22 @@ function isWebTargetSurface(surface: string): boolean {
   return WEB_TARGET_SURFACES.has(surface.trim().toLowerCase());
 }
 
+export function extractAgentToolSummary(meta: unknown): AgentToolSummary | null {
+  const toolSummary = asRecord(getPath(meta, ["toolSummary"]));
+  if (!toolSummary) {
+    return null;
+  }
+  const tools = readStringArray(toolSummary.tools) ?? [];
+  const calls = typeof toolSummary.calls === "number" ? Math.trunc(toolSummary.calls) : tools.length;
+  if (tools.length === 0 || calls <= 0) {
+    return null;
+  }
+  return {
+    toolNames: tools,
+    callCount: Math.max(calls, tools.length),
+  };
+}
+
 export function clampOutput(text: string, maxChars = 4000): string {
   if (text.length <= maxChars) {
     return text;
@@ -277,7 +299,11 @@ export async function runOpenClawAgent(params: {
           .request<{
             status?: string;
             summary?: string;
-            result?: { payloads?: Array<{ text?: string; mediaUrl?: string | null; mediaUrls?: string[] }> };
+            result?: {
+              payloads?: Array<{ text?: string; mediaUrl?: string | null; mediaUrls?: string[] }>;
+              meta?: unknown;
+            };
+            meta?: unknown;
           }>(
             "agent",
             {
@@ -303,6 +329,7 @@ export async function runOpenClawAgent(params: {
               exitCode: 0,
               stdout: text || response.summary || JSON.stringify(response),
               stderr: "",
+              meta: asRecord(response.result?.meta) ?? asRecord(response.meta) ?? undefined,
             });
           })
           .catch((err) => {
@@ -366,7 +393,10 @@ export async function executeCuriosityRun(params: {
 }): Promise<CuriosityExecutionResult> {
   const runId = params.runId?.trim() || `curiosity-run-${Date.now()}`;
   const selectedGoals = await params.manager.listGoalsByStatus(["selected", "in_progress"], 10);
-  const existing = selectedGoals.find((goal) => goal.agentId === params.agentId) ?? selectedGoals[0];
+  const existing =
+    params.force === true
+      ? undefined
+      : selectedGoals.find((goal) => goal.agentId === params.agentId) ?? selectedGoals[0];
   const selection = existing
     ? {
         selected: true as const,
@@ -469,8 +499,19 @@ export async function executeCuriosityRun(params: {
     metadata: {
       command: "openclaw agent",
       exitCode: result.exitCode,
+      toolSummary: extractAgentToolSummary(result.meta),
     },
   });
+  const toolSummary = extractAgentToolSummary(result.meta);
+  if (toolSummary && (await params.manager.countSensingStepsForRun(runId)) === 0) {
+    await params.manager.recordObservedToolCalls({
+      runId,
+      agentId: params.agentId,
+      toolNames: toolSummary.toolNames,
+      callCount: toolSummary.callCount,
+      source: "agent_meta_tool_summary",
+    });
+  }
   const outcome = await params.manager.finalizeAutonomousRun({
     runId,
     goalId: selection.goal.goalId,

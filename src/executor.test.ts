@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DEFAULT_CURIOSITY_CONFIG } from "./config.js";
-import { availableWebSensingTools, executeCuriosityRun } from "./executor.js";
+import {
+  availableWebSensingTools,
+  executeCuriosityRun,
+  extractAgentToolSummary,
+} from "./executor.js";
 import { CuriosityManager } from "./manager.js";
 import type { CuriosityConfig, GoalSourcesConfig } from "./types.js";
 
@@ -140,6 +144,21 @@ describe("curiosity executor", () => {
         "main",
       ),
     ).toEqual(["web_search"]);
+  });
+
+  it("extracts gateway tool summaries for sensing-step backfill", () => {
+    expect(
+      extractAgentToolSummary({
+        toolSummary: {
+          calls: 3,
+          tools: ["web_search", "web_fetch"],
+        },
+      }),
+    ).toEqual({
+      callCount: 3,
+      toolNames: ["web_search", "web_fetch"],
+    });
+    expect(extractAgentToolSummary({ toolSummary: { calls: 0, tools: [] } })).toBeNull();
   });
 
   it("records a web-affordance blocker instead of launching a narrative-only web run", async () => {
