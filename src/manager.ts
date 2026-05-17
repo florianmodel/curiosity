@@ -56,6 +56,13 @@ type RecordRunUsageInput = {
   totalTokens?: number;
 };
 
+type ToolRunResolution = {
+  goalId?: string;
+  runId: string;
+  originalRunId: string;
+  correlated: boolean;
+};
+
 type GoalCandidateRow = CandidateGoal & {
   scoresByModel: ScoreCard;
 };
@@ -750,6 +757,61 @@ export class CuriosityManager {
     return row ? this.parseGoalRow(row) : null;
   }
 
+  async findActiveGoalForAgent(
+    agentId?: string,
+    maxAgeMs = 2 * 60 * 60 * 1000,
+  ): Promise<GoalRecord | null> {
+    const db = await this.ensureDb();
+    const normalizedAgentId = agentId?.trim();
+    const cutoff = Date.now() - maxAgeMs;
+    const row = normalizedAgentId
+      ? (db
+          .prepare(
+            `SELECT * FROM goals
+             WHERE status IN ('selected', 'in_progress') AND agent_id = ? AND updated_at >= ?
+             ORDER BY updated_at DESC LIMIT 1`,
+          )
+          .get(normalizedAgentId, cutoff) as Record<string, unknown> | undefined)
+      : (db
+          .prepare(
+            `SELECT * FROM goals
+             WHERE status IN ('selected', 'in_progress') AND updated_at >= ?
+             ORDER BY updated_at DESC LIMIT 1`,
+          )
+          .get(cutoff) as Record<string, unknown> | undefined);
+    return row ? this.parseGoalRow(row) : null;
+  }
+
+  async resolveRunForAutonomousEvent(params: {
+    runId?: string;
+    agentId?: string;
+  }): Promise<ToolRunResolution | null> {
+    const originalRunId = params.runId?.trim();
+    if (originalRunId) {
+      const goal = await this.findGoalByRunId(originalRunId);
+      if (goal) {
+        return {
+          goalId: goal.goalId,
+          runId: originalRunId,
+          originalRunId,
+          correlated: false,
+        };
+      }
+    }
+
+    const activeGoal = await this.findActiveGoalForAgent(params.agentId);
+    const correlatedRunId = activeGoal?.lastRunId;
+    if (!activeGoal || !correlatedRunId) {
+      return null;
+    }
+    return {
+      goalId: activeGoal.goalId,
+      runId: correlatedRunId,
+      originalRunId: originalRunId ?? correlatedRunId,
+      correlated: originalRunId !== correlatedRunId,
+    };
+  }
+
   private async markRunGoalInProgress(runId: string) {
     const goalId = await this.getGoalIdForRun(runId);
     if (!goalId) {
@@ -784,8 +846,14 @@ export class CuriosityManager {
   async canUseTool(
     runId: string,
     toolName: string,
+    options: { agentId?: string } = {},
   ): Promise<{ allowed: boolean; reason?: string; goalId?: string }> {
-    const goalId = await this.getGoalIdForRun(runId);
+    const resolvedRun = await this.resolveRunForAutonomousEvent({
+      runId,
+      agentId: options.agentId,
+    });
+    const goalId = resolvedRun?.goalId;
+    const eventRunId = resolvedRun?.runId ?? runId;
     const usage = await this.getBudgetUsage();
     if (usage.autonomousTokens24h >= this.config.budgets.autonomousTokensPerDay) {
       return { allowed: false, reason: "autonomous token budget exhausted", goalId };
@@ -810,14 +878,16 @@ export class CuriosityManager {
       }
     }
 
-    await this.markRunGoalInProgress(runId);
+    await this.markRunGoalInProgress(eventRunId);
     await this.appendAuditEvent({
       eventType: safeLocalTool ? "tool_allowed" : "external_action",
       goalId,
-      runId,
+      runId: eventRunId,
       payload: {
         toolName,
         safeLocalTool,
+        originalRunId: resolvedRun?.correlated ? resolvedRun.originalRunId : undefined,
+        correlatedRunId: resolvedRun?.correlated ? eventRunId : undefined,
       },
     });
     return { allowed: true, goalId };
@@ -827,8 +897,14 @@ export class CuriosityManager {
     runId: string,
     surface: string,
     to: string,
+    options: { agentId?: string } = {},
   ): Promise<{ allowed: boolean; reason?: string; goalId?: string }> {
-    const goalId = await this.getGoalIdForRun(runId);
+    const resolvedRun = await this.resolveRunForAutonomousEvent({
+      runId,
+      agentId: options.agentId,
+    });
+    const goalId = resolvedRun?.goalId;
+    const eventRunId = resolvedRun?.runId ?? runId;
     const usage = await this.getBudgetUsage();
     if (!this.config.actionPolicy.allowExternalActions) {
       return { allowed: false, reason: "external actions are disabled by policy", goalId };
@@ -846,14 +922,16 @@ export class CuriosityManager {
     if (usage.externalActions1h >= this.config.budgets.externalActionsPerHour) {
       return { allowed: false, reason: "external action hourly budget exhausted", goalId };
     }
-    await this.markRunGoalInProgress(runId);
+    await this.markRunGoalInProgress(eventRunId);
     await this.appendAuditEvent({
       eventType: "external_action",
       goalId,
-      runId,
+      runId: eventRunId,
       payload: {
         target: to,
         surface,
+        originalRunId: resolvedRun?.correlated ? resolvedRun.originalRunId : undefined,
+        correlatedRunId: resolvedRun?.correlated ? eventRunId : undefined,
       },
     });
     return { allowed: true, goalId };
@@ -1230,7 +1308,19 @@ export class CuriosityManager {
 
     if (this.config.goalSources.externalFollowUps) {
       for (const goal of params.recentCompleted.slice(0, 4)) {
+        if (goal.status !== "completed" || goal.outcome?.success !== true) {
+          continue;
+        }
+        if (
+          goal.source === "external_follow_up" ||
+          /^Follow up on autonomous goal:/i.test(goal.title)
+        ) {
+          continue;
+        }
         if (goal.targetSurface === "workspace") {
+          continue;
+        }
+        if (goal.outcome?.minimumActionSatisfied === false || goal.evidence.length === 0) {
           continue;
         }
         candidates.push({

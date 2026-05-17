@@ -38,8 +38,10 @@ npm install
 npm run build
 openclaw plugins install /absolute/path/to/openclaw-curiosity
 openclaw plugins enable curiosity
-openclaw config set tools.allow '["curiosity_inspect"]'
+openclaw config set tools.alsoAllow '["curiosity_inspect"]'
 ```
+
+Use `tools.alsoAllow` so the plugin tool is added without narrowing the rest of the agent's tool affordances. Setting `tools.allow` to only `curiosity_inspect` will intentionally leave autonomous web runs with no web tools.
 
 If `curiosity` is already installed from a local path, rebuild first and replace the tracked install with `--force` instead of running a plain install:
 
@@ -130,6 +132,9 @@ openclaw curiosity resume
 - Curiosity executor runs carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
 - Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.
 - The first visible background notification should be the outcome receipt. The run should act first, then report the outcome and evidence.
+- Web-targeted executor runs preflight `web_search`, `web_fetch`, and `browser` availability. If runtime policy has removed all web affordances, the run records a `NO_SENSING_AFFORDANCE` blocker instead of launching a narrative-only agent turn.
+- Tool events are correlated back to the active curiosity run id even when the gateway reports an inner run id, so qualifying sensing steps are counted against the selected goal.
+- External follow-up goals are created only from successful, completed, non-follow-up prior goals; failed runs do not feed a nested "Follow up on..." loop.
 - `curiosity_inspect` is useful for human/debug inspection, but it does not count as a qualifying autonomous sensing step by itself.
 - Infrastructure failures and repeated goal fingerprints are damped so curiosity does not orbit its own gateway errors.
 - `failedToolAttempts` and `skillOpportunities` default off; enable them only when you want meta-maintenance to compete with boredom-driven exploration.

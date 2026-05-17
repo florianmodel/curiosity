@@ -19,6 +19,10 @@ type GatewayClientConstructor = new (opts: {
   onConnectError?: (err: Error) => void;
 }) => GatewayClientInstance;
 
+const NO_SENSING_AFFORDANCE_TOKEN = "NO_SENSING_AFFORDANCE";
+const WEB_TARGET_SURFACES = new Set(["web", "search", "browser"]);
+const DEFAULT_WEB_TOOLS = ["web_search", "web_fetch", "browser"];
+
 export type CuriosityAgentRunResult = {
   exitCode: number | null;
   stdout: string;
@@ -31,6 +35,20 @@ export type CuriosityExecutionResult =
       runId: string;
       agentId: string;
       reason: string;
+    }
+  | {
+      selected: true;
+      executed: false;
+      success: false;
+      blocked: true;
+      runId: string;
+      agentId: string;
+      goalId: string;
+      adoptedFromAgentId?: string;
+      blocker: string;
+      outcome: Awaited<ReturnType<CuriosityManager["finalizeAutonomousRun"]>>;
+      resultNotice?: unknown;
+      startNotice?: unknown;
     }
   | {
       selected: true;
@@ -52,6 +70,137 @@ function parseSelectionReason(
   selection: Extract<GoalSelectionDecision, { selected: false }> | { selected: false; reason: string },
 ) {
   return selection.reason;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function getPath(root: unknown, path: string[]): unknown {
+  let current: unknown = root;
+  for (const key of path) {
+    const record = asRecord(current);
+    if (!record) {
+      return undefined;
+    }
+    current = record[key];
+  }
+  return current;
+}
+
+function readStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function mergeAllowPolicy(allow: unknown, alsoAllow: unknown): string[] | null {
+  const allowList = readStringArray(allow);
+  if (!allowList) {
+    return null;
+  }
+  return [...allowList, ...(readStringArray(alsoAllow) ?? [])];
+}
+
+function findAgentConfig(runtimeConfig: unknown, agentId?: string): Record<string, unknown> | null {
+  const normalizedAgentId = agentId?.trim();
+  if (!normalizedAgentId) {
+    return null;
+  }
+  const list = getPath(runtimeConfig, ["agents", "list"]);
+  if (!Array.isArray(list)) {
+    return null;
+  }
+  const entry = list.find((candidate) => {
+    const record = asRecord(candidate);
+    return typeof record?.id === "string" && record.id.trim() === normalizedAgentId;
+  });
+  return asRecord(entry);
+}
+
+function matchesToolPattern(toolName: string, pattern: string): boolean {
+  const normalizedPattern = pattern.trim().toLowerCase();
+  if (!normalizedPattern || normalizedPattern === "*") {
+    return true;
+  }
+  if (normalizedPattern === "group:web") {
+    return (
+      DEFAULT_WEB_TOOLS.includes(toolName) ||
+      /(?:web|search|fetch|browser|crawl|scrape)/i.test(toolName)
+    );
+  }
+  if (!normalizedPattern.includes("*")) {
+    return normalizedPattern === toolName;
+  }
+  const escaped = normalizedPattern
+    .split("*")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(".*");
+  return new RegExp(`^${escaped}$`).test(toolName);
+}
+
+function isToolBlockedByList(toolName: string, patterns: string[] | null): boolean {
+  return Boolean(patterns?.some((pattern) => matchesToolPattern(toolName, pattern)));
+}
+
+function isToolAllowedByList(toolName: string, patterns: string[] | null): boolean {
+  return !patterns || patterns.some((pattern) => matchesToolPattern(toolName, pattern));
+}
+
+function webToolEnabledBySpecificConfig(runtimeConfig: unknown, toolName: string): boolean {
+  if (toolName === "browser" && getPath(runtimeConfig, ["browser", "enabled"]) === false) {
+    return false;
+  }
+  if (toolName === "web_search") {
+    return getPath(runtimeConfig, ["tools", "web", "search", "enabled"]) !== false;
+  }
+  if (toolName === "web_fetch") {
+    return getPath(runtimeConfig, ["tools", "web", "fetch", "enabled"]) !== false;
+  }
+  return true;
+}
+
+export function availableWebSensingTools(runtimeConfig?: unknown, agentId?: string): string[] {
+  const agentConfig = findAgentConfig(runtimeConfig, agentId);
+  const allowLists = [
+    mergeAllowPolicy(
+      getPath(runtimeConfig, ["tools", "allow"]),
+      getPath(runtimeConfig, ["tools", "alsoAllow"]),
+    ),
+    readStringArray(getPath(runtimeConfig, ["gateway", "tools", "allow"])),
+    mergeAllowPolicy(
+      getPath(runtimeConfig, ["agents", "defaults", "tools", "allow"]),
+      getPath(runtimeConfig, ["agents", "defaults", "tools", "alsoAllow"]),
+    ),
+    mergeAllowPolicy(
+      getPath(agentConfig, ["tools", "allow"]),
+      getPath(agentConfig, ["tools", "alsoAllow"]),
+    ),
+  ].filter((value): value is string[] => value !== null);
+  const denyLists = [
+    readStringArray(getPath(runtimeConfig, ["tools", "deny"])),
+    readStringArray(getPath(runtimeConfig, ["gateway", "tools", "deny"])),
+    readStringArray(getPath(runtimeConfig, ["agents", "defaults", "tools", "deny"])),
+    readStringArray(getPath(agentConfig, ["tools", "deny"])),
+  ].filter((value): value is string[] => value !== null);
+
+  return DEFAULT_WEB_TOOLS.filter((toolName) => {
+    if (!webToolEnabledBySpecificConfig(runtimeConfig, toolName)) {
+      return false;
+    }
+    if (denyLists.some((patterns) => isToolBlockedByList(toolName, patterns))) {
+      return false;
+    }
+    return allowLists.every((patterns) => isToolAllowedByList(toolName, patterns));
+  });
+}
+
+function isWebTargetSurface(surface: string): boolean {
+  return WEB_TARGET_SURFACES.has(surface.trim().toLowerCase());
 }
 
 export function clampOutput(text: string, maxChars = 4000): string {
@@ -205,6 +354,7 @@ export async function executeCuriosityRun(params: {
   runId?: string;
   timeoutSeconds: number;
   gatewayUrl: string;
+  runtimeConfig?: unknown;
   select?: boolean;
   notifyStart?: boolean;
   force?: boolean;
@@ -246,6 +396,57 @@ export async function executeCuriosityRun(params: {
     agentId: params.agentId,
   });
   const startedAt = Date.now();
+  const webTools = availableWebSensingTools(params.runtimeConfig, params.agentId);
+  if (isWebTargetSurface(selection.goal.targetSurface) && webTools.length === 0) {
+    const blocker =
+      `${NO_SENSING_AFFORDANCE_TOKEN} Web exploration cannot run because no web/search/browser sensing tool is available in the current OpenClaw runtime configuration.`;
+    await params.manager.recordObservation({
+      kind: "assistant_output",
+      runId,
+      agentId: params.agentId,
+      success: false,
+      content: blocker,
+      metadata: {
+        trigger: params.trigger,
+        preflight: "web_affordance",
+      },
+    });
+    const outcome = await params.manager.finalizeAutonomousRun({
+      runId,
+      goalId: selection.goal.goalId,
+      agentId: params.agentId,
+      trigger: params.trigger,
+      success: false,
+      durationMs: Date.now() - startedAt,
+      error: blocker,
+    });
+    const refreshedGoal = await params.manager.findGoalByRunId(runId);
+    const resultNotice = refreshedGoal
+      ? await params.manager.notifyAutonomousFinish({
+          runId,
+          agentId: params.agentId,
+          goal: refreshedGoal,
+          success: false,
+          error: outcome.error,
+        })
+      : undefined;
+    return {
+      selected: true,
+      executed: false,
+      success: false,
+      blocked: true,
+      runId,
+      agentId: params.agentId,
+      goalId: selection.goal.goalId,
+      adoptedFromAgentId:
+        "adoptedFromAgentId" in selection ? selection.adoptedFromAgentId : undefined,
+      blocker,
+      outcome,
+      resultNotice,
+      startNotice: "notification" in selection ? selection.notification : undefined,
+    };
+  }
+
   const result = await runOpenClawAgent({
     agentId: params.agentId,
     runId,

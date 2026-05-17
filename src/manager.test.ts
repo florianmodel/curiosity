@@ -683,6 +683,48 @@ describe("CuriosityManager", () => {
     expect(goal.outcome?.requiredSensingSteps).toBe(2);
   });
 
+  it("correlates tool events from a gateway run id back to the active curiosity run", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      actionPolicy: { minimumSensingSteps: 2 },
+    });
+    await manager.recordObservation({
+      kind: "message_received",
+      content: "Can you resolve the pending uncertainty?",
+    });
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "curiosity-run-correlated",
+      trigger: "curiosity-executor",
+    });
+    expect(decision.selected).toBe(true);
+    if (!decision.selected) {
+      return;
+    }
+
+    await manager.canUseTool("gateway-run-correlated", "read", { agentId: "main" });
+    await manager.canUseTool("gateway-run-correlated", "process", { agentId: "main" });
+    await manager.finalizeAutonomousRun({
+      runId: "curiosity-run-correlated",
+      goalId: decision.goal.goalId,
+      agentId: "main",
+      trigger: "curiosity-executor",
+      success: true,
+    });
+    const inspected = await manager.inspectIdentifier(decision.goal.goalId);
+    const goal = inspected.goal as { status?: string; outcome?: Record<string, unknown> };
+    const events = inspected.events as Array<{ runId?: string; payload?: Record<string, unknown> }>;
+
+    expect(goal.status).toBe("completed");
+    expect(goal.outcome?.sensingSteps).toBe(2);
+    expect(
+      events.filter((event) => event.runId === "curiosity-run-correlated").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(events.some((event) => event.payload?.originalRunId === "gateway-run-correlated")).toBe(
+      true,
+    );
+  });
+
   it("does not count curiosity_inspect as a qualifying sensing step", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },
@@ -743,6 +785,57 @@ describe("CuriosityManager", () => {
     const allowed = await manager.canUseTool("run-1", "Read");
 
     expect(allowed.allowed).toBe(true);
+  });
+
+  it("does not create nested follow-up goals from failed autonomous runs", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 5 },
+      goalSources: { ...NO_GOAL_SOURCES, externalFollowUps: true },
+      thresholds: { act: 0.2 },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+        satiationMinutes: 0,
+      },
+      actionPolicy: {
+        allowExternalActions: true,
+        externalTargetPolicy: "research-web-only",
+        retryCooldownMinutes: 60,
+      },
+    });
+    await manager.getBoredomState(Date.now() - 3 * 60 * 1000);
+    const first = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-failed-web",
+      trigger: "curiosity-executor",
+    });
+    expect(first.selected).toBe(true);
+    if (!first.selected) {
+      return;
+    }
+    await manager.finalizeAutonomousRun({
+      runId: "run-failed-web",
+      goalId: first.goal.goalId,
+      agentId: "main",
+      trigger: "curiosity-executor",
+      success: true,
+    });
+
+    await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-after-failed-web",
+      trigger: "curiosity-executor",
+    });
+    const snapshot = await manager.queueSnapshot(20);
+
+    expect(
+      snapshot.goals.some(
+        (goal) =>
+          goal.source === "external_follow_up" || /^Follow up on autonomous goal:/i.test(goal.title),
+      ),
+    ).toBe(false);
   });
 
   it("evaluates configured active windows in the configured time zone", () => {

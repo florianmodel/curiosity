@@ -35,6 +35,7 @@ export async function registerCuriosityCli(params: {
   workspaceDir?: string;
   gatewayUrl?: string;
   defaultAgentId?: string;
+  runtimeConfig?: unknown;
   resolveManager: (workspaceDir: string) => Promise<CuriosityManager>;
 }) {
   const workspaceDir = params.workspaceDir;
@@ -131,6 +132,7 @@ export async function registerCuriosityCli(params: {
           runId,
           timeoutSeconds,
           gatewayUrl,
+          runtimeConfig: params.runtimeConfig,
           select: parseBooleanOption(options.select, true),
           notifyStart: parseBooleanOption(options.notify, true),
           force: parseBooleanOption(options.force, false),
