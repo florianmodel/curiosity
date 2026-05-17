@@ -893,6 +893,61 @@ export class CuriosityManager {
     return { allowed: true, goalId };
   }
 
+  async recordObservedToolCalls(params: {
+    runId: string;
+    agentId?: string;
+    toolNames: string[];
+    callCount?: number;
+    source: string;
+  }): Promise<{ recorded: number; runId: string; goalId?: string }> {
+    const resolvedRun = await this.resolveRunForAutonomousEvent({
+      runId: params.runId,
+      agentId: params.agentId,
+    });
+    const eventRunId = resolvedRun?.runId ?? params.runId;
+    const goalId = resolvedRun?.goalId ?? (await this.getGoalIdForRun(eventRunId));
+    const normalizedToolNames = uniq(
+      params.toolNames
+        .map((toolName) => toolName.trim())
+        .filter(Boolean)
+        .map((toolName) => toolName.replace(/^openclaw_/, "")),
+    );
+    const callCount = Math.max(
+      normalizedToolNames.length,
+      Number.isFinite(params.callCount ?? NaN) ? Math.trunc(params.callCount ?? 0) : 0,
+    );
+    if (callCount <= 0 || normalizedToolNames.length === 0) {
+      return { recorded: 0, runId: eventRunId, goalId };
+    }
+
+    await this.markRunGoalInProgress(eventRunId);
+    let recorded = 0;
+    for (let index = 0; index < callCount; index += 1) {
+      const toolName =
+        normalizedToolNames[index] ?? normalizedToolNames[normalizedToolNames.length - 1];
+      if (!toolName) {
+        continue;
+      }
+      const normalizedToolName = toolName.trim().toLowerCase();
+      const safeLocalTool = SAFE_LOCAL_TOOLS.has(normalizedToolName);
+      await this.appendAuditEvent({
+        eventType: safeLocalTool ? "tool_allowed" : "external_action",
+        goalId,
+        runId: eventRunId,
+        payload: {
+          toolName,
+          safeLocalTool,
+          observed: true,
+          source: params.source,
+          originalRunId: resolvedRun?.correlated ? resolvedRun.originalRunId : undefined,
+          correlatedRunId: resolvedRun?.correlated ? eventRunId : undefined,
+        },
+      });
+      recorded += 1;
+    }
+    return { recorded, runId: eventRunId, goalId };
+  }
+
   async canSendMessage(
     runId: string,
     surface: string,
@@ -1588,15 +1643,15 @@ export class CuriosityManager {
 
     const ranked = rankGoalsByScore(scoredGoals);
     const forcedSurface = params.forcedSurface?.trim().toLowerCase();
-    const forcedSelection =
+    const forcedSurfaceMatches =
       params.forceSelect === true
-        ? ranked.find((goal) => {
-            if (!forcedSurface) {
-              return true;
-            }
-            return goal.targetSurface.trim().toLowerCase() === forcedSurface;
+        ? ranked.filter((goal) => {
+            return !forcedSurface || goal.targetSurface.trim().toLowerCase() === forcedSurface;
           })
-        : undefined;
+        : [];
+    const forcedSelection =
+      forcedSurfaceMatches.find((goal) => /^Manual forced/i.test(goal.title)) ??
+      forcedSurfaceMatches[0];
     const blockedGoals: Array<{ goalId: string; title: string; reason: string }> = [];
     const selected = forcedSelection ?? ranked.find((goal) => {
       if (goal.scoresByModel.active_ensemble < this.config.thresholds.act) {
@@ -1746,6 +1801,11 @@ export class CuriosityManager {
       const toolName = String(payload.toolName ?? "").trim().toLowerCase();
       return row.event_type === "tool_allowed" && toolName !== "curiosity_inspect";
     }).length;
+  }
+
+  async countSensingStepsForRun(runId: string): Promise<number> {
+    const db = await this.ensureDb();
+    return this.countAutonomousSensingSteps(db, runId);
   }
 
   private autonomousRunReportedNoSensingAffordance(db: DatabaseSync, runId: string): boolean {
