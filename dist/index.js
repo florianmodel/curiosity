@@ -114,6 +114,7 @@ export function register(api) {
                     agentId,
                     timeoutSeconds: 900,
                     gatewayUrl,
+                    runtimeConfig: api.config,
                     select: true,
                     notifyStart: false,
                     trigger: runReason,
@@ -153,6 +154,7 @@ export function register(api) {
             workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
             gatewayUrl,
             defaultAgentId: resolveDefaultAgentId(api.config),
+            runtimeConfig: api.config,
             resolveManager,
         });
     }, {
@@ -238,10 +240,13 @@ export function register(api) {
         const workspaceDir = resolveWorkspaceDir(api, undefined, activeRun?.agentId ?? ctx.agentId);
         const manager = await resolveManager(workspaceDir);
         const runGoal = activeRun ? null : runId ? await manager.findGoalByRunId(runId) : null;
-        if (!activeRun && !runGoal) {
+        const activeGoal = !activeRun && !runGoal ? await manager.findActiveGoalForAgent(ctx.agentId) : null;
+        if (!activeRun && !runGoal && !activeGoal) {
             return;
         }
-        const allowed = await manager.canUseTool(activeRun?.runId ?? runId ?? "", event.toolName);
+        const allowed = await manager.canUseTool(activeRun?.runId ?? runId ?? "", event.toolName, {
+            agentId: activeRun?.agentId ?? ctx.agentId,
+        });
         if (!allowed.allowed) {
             return {
                 block: true,
@@ -254,7 +259,10 @@ export function register(api) {
         const manager = await resolveManager(workspaceDir);
         await manager.recordObservation({
             kind: event.error ? "tool_failure" : "tool_success",
-            runId: ctx.runId,
+            runId: (await manager.resolveRunForAutonomousEvent({
+                runId: event.runId ?? ctx.runId,
+                agentId: ctx.agentId,
+            }))?.runId ?? ctx.runId,
             agentId: ctx.agentId,
             sessionKey: ctx.sessionKey,
             toolName: event.toolName,
@@ -283,10 +291,11 @@ export function register(api) {
                 trigger: ctx.trigger,
             },
         });
-        if (!activeRun && !runGoal) {
+        const activeGoal = !activeRun && !runGoal ? await manager.findActiveGoalForAgent(ctx.agentId) : null;
+        if (!activeRun && !runGoal && !activeGoal) {
             return;
         }
-        const allowed = await manager.canSendMessage(activeRun?.runId ?? runId ?? "", ctx.channelId ?? event.to, event.to);
+        const allowed = await manager.canSendMessage(activeRun?.runId ?? runId ?? "", ctx.channelId ?? event.to, event.to, { agentId: activeRun?.agentId ?? ctx.agentId });
         if (!allowed.allowed) {
             return {
                 cancel: true,
@@ -315,10 +324,15 @@ export function register(api) {
         const manager = await resolveManager(workspaceDir);
         const activeRun = getActiveRun(event.runId);
         const runGoal = activeRun ? null : await manager.findGoalByRunId(event.runId);
-        const goalId = activeRun?.goalId ?? runGoal?.goalId;
+        const resolvedRun = await manager.resolveRunForAutonomousEvent({
+            runId: event.runId,
+            agentId: ctx.agentId,
+        });
+        const goalId = activeRun?.goalId ?? runGoal?.goalId ?? resolvedRun?.goalId;
+        const observationRunId = activeRun?.runId ?? resolvedRun?.runId ?? event.runId;
         await manager.recordObservation({
             kind: "assistant_output",
-            runId: event.runId,
+            runId: observationRunId,
             agentId: ctx.agentId,
             sessionKey: ctx.sessionKey,
             content: event.assistantTexts.join("\n"),
@@ -329,7 +343,7 @@ export function register(api) {
             },
         });
         await manager.updateRunTokens({
-            runId: event.runId,
+            runId: observationRunId,
             goalId,
             agentId: ctx.agentId ?? "unknown",
             trigger: ctx.trigger ?? "user",

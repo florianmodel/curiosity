@@ -93,6 +93,7 @@ export async function registerCuriosityCli(params) {
             runId,
             timeoutSeconds,
             gatewayUrl,
+            runtimeConfig: params.runtimeConfig,
             select: parseBooleanOption(options.select, true),
             notifyStart: parseBooleanOption(options.notify, true),
             force: parseBooleanOption(options.force, false),
