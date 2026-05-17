@@ -329,6 +329,7 @@ export async function selectCuriosityGoal(params: {
   runId: string;
   notify: boolean;
   force?: boolean;
+  forcedSurface?: string;
   trigger?: string;
 }): Promise<GoalSelectionDecision & { notification?: unknown }> {
   const decision = await params.manager.selectGoalForRun({
@@ -336,6 +337,8 @@ export async function selectCuriosityGoal(params: {
     runId: params.runId,
     trigger: params.trigger ?? "curiosity-executor",
     ignoreRetryBlocks: params.force === true,
+    forceSelect: params.force === true,
+    forcedSurface: params.forcedSurface,
   });
   const notification =
     decision.selected && params.notify
@@ -358,6 +361,7 @@ export async function executeCuriosityRun(params: {
   select?: boolean;
   notifyStart?: boolean;
   force?: boolean;
+  forcedSurface?: string;
   trigger: string;
 }): Promise<CuriosityExecutionResult> {
   const runId = params.runId?.trim() || `curiosity-run-${Date.now()}`;
@@ -377,6 +381,7 @@ export async function executeCuriosityRun(params: {
           runId,
           notify: params.notifyStart === true,
           force: params.force === true,
+          forcedSurface: params.forcedSurface,
           trigger: params.trigger,
         })
       : { selected: false as const, reason: "no_selected_goal" };

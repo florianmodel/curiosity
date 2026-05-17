@@ -1051,6 +1051,32 @@ export class CuriosityManager {
         }
         const deduped = new Map();
         const driveAllowedCandidates = candidates.filter((candidate) => params.force === true || this.isCandidateAllowedByDrive(candidate, params.boredom));
+        const forcedSurface = params.forcedSurface?.trim().toLowerCase();
+        if (params.force === true && forcedSurface) {
+            driveAllowedCandidates.unshift({
+                source: "self_authored_intention",
+                title: forcedSurface === "web" || forcedSurface === "search" || forcedSurface === "browser"
+                    ? "Manual forced web exploration"
+                    : `Manual forced curiosity run on ${forcedSurface}`,
+                evidence: [
+                    `A manual curiosity run was forced from the CLI for target surface "${forcedSurface}".`,
+                    "This bypasses drive maturity for smoke testing and should still satisfy the normal tool-backed action requirement.",
+                ],
+                proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
+                targetSurface: forcedSurface,
+                estimatedCost: forcedSurface === "web" || forcedSurface === "search" || forcedSurface === "browser"
+                    ? 320
+                    : 160,
+                risk: forcedSurface === "web" || forcedSurface === "search" || forcedSurface === "browser"
+                    ? 0.1
+                    : 0.06,
+                keywords: extractKeywords(`manual forced curiosity ${forcedSurface} exploration`),
+                metadata: {
+                    forced: true,
+                    forcedSurface,
+                },
+            });
+        }
         if (params.force === true && driveAllowedCandidates.length === 0) {
             driveAllowedCandidates.push({
                 source: "self_authored_intention",
@@ -1159,6 +1185,7 @@ export class CuriosityManager {
             recentCompleted,
             boredom,
             force: params.ignoreRetryBlocks === true,
+            forcedSurface: params.forceSelect === true ? params.forcedSurface : undefined,
         });
         if (candidates.length === 0) {
             await this.appendAuditEvent({
@@ -1194,8 +1221,17 @@ export class CuriosityManager {
             });
         }
         const ranked = rankGoalsByScore(scoredGoals);
+        const forcedSurface = params.forcedSurface?.trim().toLowerCase();
+        const forcedSelection = params.forceSelect === true
+            ? ranked.find((goal) => {
+                if (!forcedSurface) {
+                    return true;
+                }
+                return goal.targetSurface.trim().toLowerCase() === forcedSurface;
+            })
+            : undefined;
         const blockedGoals = [];
-        const selected = ranked.find((goal) => {
+        const selected = forcedSelection ?? ranked.find((goal) => {
             if (goal.scoresByModel.active_ensemble < this.config.thresholds.act) {
                 return false;
             }

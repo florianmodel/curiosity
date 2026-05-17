@@ -214,6 +214,8 @@ export async function selectCuriosityGoal(params) {
         runId: params.runId,
         trigger: params.trigger ?? "curiosity-executor",
         ignoreRetryBlocks: params.force === true,
+        forceSelect: params.force === true,
+        forcedSurface: params.forcedSurface,
     });
     const notification = decision.selected && params.notify
         ? await params.manager.notifyAutonomousStart({
@@ -242,6 +244,7 @@ export async function executeCuriosityRun(params) {
                 runId,
                 notify: params.notifyStart === true,
                 force: params.force === true,
+                forcedSurface: params.forcedSurface,
                 trigger: params.trigger,
             })
             : { selected: false, reason: "no_selected_goal" };
