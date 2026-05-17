@@ -614,6 +614,36 @@ describe("CuriosityManager", () => {
     }
   });
 
+  it("force-selects a web goal for manual smoke tests even when drive gates are quiet", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      thresholds: { act: 0.95 },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 60,
+        saturationMinutes: 120,
+        wakeLevel: 0.8,
+        satiationMinutes: 0,
+      },
+    });
+
+    const forced = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-force-web",
+      trigger: "curiosity-cli",
+      ignoreRetryBlocks: true,
+      forceSelect: true,
+      forcedSurface: "web",
+    });
+
+    expect(forced.selected).toBe(true);
+    if (forced.selected) {
+      expect(forced.goal.title).toBe("Manual forced web exploration");
+      expect(forced.goal.targetSurface).toBe("web");
+    }
+  });
+
   it("marks autonomous runs failed when they end without a tool-backed action", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },

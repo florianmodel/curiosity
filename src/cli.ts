@@ -113,7 +113,8 @@ export async function registerCuriosityCli(params: {
     .option("--timeout <seconds>", "Agent command timeout in seconds", "900")
     .option("--select <boolean>", "Select a new goal when none is already selected", "true")
     .option("--notify <boolean>", "Send configured start notification for newly selected goals", "true")
-    .option("--force <boolean>", "Ignore retry cooldown for this manual run", "false")
+    .option("--force <boolean>", "Force-select the best candidate even below the act threshold", "false")
+    .option("--surface <surface>", "Force a target surface such as web, search, browser, or workspace")
     .action(
       async (options: {
         agent?: string;
@@ -122,6 +123,7 @@ export async function registerCuriosityCli(params: {
         select?: string;
         notify?: string;
         force?: string;
+        surface?: string;
       }) => {
         const runId = options.runId?.trim() || `curiosity-run-${Date.now()}`;
         const agentId = options.agent?.trim() || defaultAgentId;
@@ -136,6 +138,7 @@ export async function registerCuriosityCli(params: {
           select: parseBooleanOption(options.select, true),
           notifyStart: parseBooleanOption(options.notify, true),
           force: parseBooleanOption(options.force, false),
+          forcedSurface: options.surface?.trim() || undefined,
           trigger: "curiosity-cli-run",
         });
         printJson(result);
