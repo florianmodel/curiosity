@@ -175,7 +175,15 @@ function observatoryHtml() {
     </div>
   </main>
   <script>
-    const state = { selectedRunId: new URLSearchParams(location.search).get("run") || "" };
+    const tokenFromHash = new URLSearchParams(location.hash.replace(/^#/, "")).get("token") || "";
+    if (tokenFromHash) {
+      sessionStorage.setItem("openclaw.curiosity.token", tokenFromHash);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    const state = {
+      selectedRunId: new URLSearchParams(location.search).get("run") || "",
+      token: tokenFromHash || sessionStorage.getItem("openclaw.curiosity.token") || ""
+    };
     const $ = (id) => document.getElementById(id);
     const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({
       "&": "&amp;",
@@ -198,11 +206,21 @@ function observatoryHtml() {
       return size.toFixed(index === 0 ? 0 : 1) + " " + units[index];
     };
     async function api(path, options = {}) {
+      const headers = { "Accept": "application/json", ...(options.headers || {}) };
+      if (state.token) {
+        headers.Authorization = "Bearer " + state.token;
+      }
       const response = await fetch("/curiosity/api" + path, {
         ...options,
-        headers: { "Accept": "application/json", ...(options.headers || {}) }
+        headers
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 401 || response.status === 403) {
+          throw new Error("Unauthorized. Open /curiosity#token=YOUR_GATEWAY_TOKEN or use the authenticated dashboard origin.");
+        }
+        throw new Error(text);
+      }
       return await response.json();
     }
     function stat(label, value) {

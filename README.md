@@ -138,10 +138,11 @@ Open the gateway dashboard and visit `/curiosity` on the same host, for example:
 
 ```bash
 openclaw dashboard --no-open
-# then open http://127.0.0.1:18789/curiosity, or the same remote dashboard origin plus /curiosity
+# then open http://127.0.0.1:18789/curiosity#token=<gateway-token>,
+# or the same remote dashboard origin plus /curiosity#token=<gateway-token>
 ```
 
-The page is read-heavy by design: it shows recent runs, goals, events, observations, raw sidecar links, boredom state, token counts, and retention settings. It also exposes only coarse controls: start one selection run, pause, and resume.
+The page shell loads at `/curiosity`, then uses the gateway token from the URL fragment for `/curiosity/api/*` calls. The page is read-heavy by design: it shows recent runs, goals, events, observations, raw sidecar links, boredom state, token counts, and retention settings. It also exposes only coarse controls: start one selection run, pause, and resume.
 
 ## Notes
 

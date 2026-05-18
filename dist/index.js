@@ -154,6 +154,19 @@ export function register(api) {
     if (api.registerHttpRoute) {
         api.registerHttpRoute({
             path: "/curiosity",
+            auth: "plugin",
+            match: "exact",
+            handler: createCuriosityObservatoryRoute({
+                workspaceDir: defaultWorkspaceDir,
+                agentId: defaultAgentId,
+                gatewayUrl,
+                runtimeConfig: api.config,
+                resolveManager,
+                logger: api.logger,
+            }),
+        });
+        api.registerHttpRoute({
+            path: "/curiosity/api",
             auth: "gateway",
             match: "prefix",
             handler: createCuriosityObservatoryRoute({

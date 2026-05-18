@@ -37,6 +37,13 @@ describe("curiosity plugin entry", () => {
     expect(httpRouteSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "/curiosity",
+        auth: "plugin",
+        match: "exact",
+      }),
+    );
+    expect(httpRouteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/curiosity/api",
         auth: "gateway",
         match: "prefix",
       }),
