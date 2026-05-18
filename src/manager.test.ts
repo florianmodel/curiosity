@@ -117,6 +117,23 @@ async function createManager(configOverrides: CuriosityConfigOverrides = {}) {
 }
 
 describe("CuriosityManager", () => {
+  it("stores raw observation sidecars for observatory inspection", async () => {
+    const manager = await createManager();
+    await manager.recordObservation({
+      kind: "assistant_output",
+      runId: "curiosity-run-raw",
+      agentId: "main",
+      content: "First line\nSecond line with detail",
+    });
+
+    const observations = await manager.listRecentObservations(1);
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.content).toBe("First line Second line with detail");
+    expect(observations[0]?.metadata.rawContentPath).toEqual(expect.any(String));
+    const raw = await manager.readRawObservationContent(observations[0]?.id ?? 0);
+    expect(raw).toBe("First line\nSecond line with detail");
+  });
+
   it("selects a self-authored goal from an empty state after boredom matures", async () => {
     const manager = await createManager({
       thresholds: { act: 0.6 },

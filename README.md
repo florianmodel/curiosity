@@ -10,6 +10,7 @@
 - Adds an idle-time boredom drive that can start an executor-backed self-authored run
 - Escalates bored runs toward one concrete, tool-backed, reversible outcome instead of a meta announcement or bare inspection
 - Sends autonomous result receipts through the configured Telegram notice path, with background boredom runs suppressing the start notice by default
+- Serves a gateway-authenticated Curiosity Observatory at `/curiosity` for run traces, raw observation logs, budget state, and pause/resume/start controls
 - Logs every scored goal, selected goal, external action, and token budget event
 - Exposes queue/inspect/compare/pause/resume surfaces through both a tool and CLI
 
@@ -30,6 +31,7 @@ For each workspace, the plugin writes:
 
 - SQLite state: `<workspace>/.openclaw/curiosity/curiosity.db`
 - Immutable audit logs: `<workspace>/.openclaw/curiosity/events-YYYY-MM-DD.jsonl`
+- Raw observation sidecars: `<workspace>/.openclaw/curiosity/raw/YYYY-MM-DD/<run-id>/*.txt`
 
 ## Installation
 
@@ -84,6 +86,11 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
             "wakeMinIntervalMinutes": 5,
             "satiationMinutes": 5
           },
+          "logging": {
+            "retentionDays": 100,
+            "maxStorageBytes": 10737418240,
+            "verbose": false
+          },
           "actionPolicy": {
             "allowExternalActions": true,
             "externalTargetPolicy": "any-configured-surface",
@@ -102,7 +109,8 @@ The plugin expects a Node runtime with `node:sqlite` support, which means Node 2
                 "chatId": "123456789"
               },
               "minIntervalMinutes": 0,
-              "includeEvidence": true
+              "includeEvidence": true,
+              "observatoryBaseUrl": "https://your-dashboard.example"
             }
           }
         }
@@ -124,11 +132,24 @@ openclaw curiosity pause
 openclaw curiosity resume
 ```
 
+## Curiosity Observatory
+
+Open the gateway dashboard and visit `/curiosity` on the same host, for example:
+
+```bash
+openclaw dashboard --no-open
+# then open http://127.0.0.1:18789/curiosity, or the same remote dashboard origin plus /curiosity
+```
+
+The page is read-heavy by design: it shows recent runs, goals, events, observations, raw sidecar links, boredom state, token counts, and retention settings. It also exposes only coarse controls: start one selection run, pause, and resume.
+
 ## Notes
 
 - Heartbeat remains a selection surface, but boredom now starts the curiosity executor directly once the drive crosses `boredom.wakeLevel`.
 - To limit curiosity selection by time of day, set `actionPolicy.activeHours` to `configured-window` and provide `actionPolicy.activeWindow` with `start`, `end`, and optional `timeZone` values.
 - To get curiosity receipts, enable `notifications.autonomousStart` and set `telegram.botToken` plus `telegram.chatId`. Manual CLI runs can still send a start notice, while background boredom runs send the completion/failure receipt without a start announcement.
+- Telegram receipts intentionally stay short; use `/curiosity?run=<run-id>` for the richer trace.
+- Set `notifications.autonomousStart.observatoryBaseUrl` to the dashboard origin if you want Telegram receipts to include a clickable run trace link.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
 - Curiosity executor runs carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
 - Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.

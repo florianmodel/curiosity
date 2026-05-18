@@ -46,7 +46,8 @@ export const DEFAULT_CURIOSITY_CONFIG = {
     },
     shadowModels: [...DEFAULT_SHADOW_MODELS],
     logging: {
-        retentionDays: 7,
+        retentionDays: 100,
+        maxStorageBytes: 10 * 1024 * 1024 * 1024,
         verbose: false,
     },
     actionPolicy: {
@@ -64,6 +65,7 @@ export const DEFAULT_CURIOSITY_CONFIG = {
             provider: "telegram",
             minIntervalMinutes: 0,
             includeEvidence: true,
+            observatoryBaseUrl: undefined,
         },
     },
 };
@@ -170,6 +172,7 @@ export const curiosityPluginConfigSchemaJson = {
             additionalProperties: false,
             properties: {
                 retentionDays: { type: "integer", minimum: 1 },
+                maxStorageBytes: { type: "integer", minimum: 1 },
                 verbose: { type: "boolean" },
             },
         },
@@ -254,6 +257,10 @@ export const curiosityPluginConfigSchemaJson = {
                         includeEvidence: {
                             type: "boolean",
                             description: "Include the selected goal evidence in the notification body.",
+                        },
+                        observatoryBaseUrl: {
+                            type: "string",
+                            description: "Optional absolute base URL used to link Telegram receipts to /curiosity run traces.",
                         },
                         telegram: {
                             type: "object",
@@ -383,6 +390,10 @@ export function resolveCuriosityConfig(raw) {
     const autonomousStart = typeof notifications.autonomousStart === "object" && notifications.autonomousStart !== null
         ? notifications.autonomousStart
         : {};
+    const observatoryBaseUrl = typeof autonomousStart.observatoryBaseUrl === "string" &&
+        autonomousStart.observatoryBaseUrl.trim().length > 0
+        ? autonomousStart.observatoryBaseUrl.trim()
+        : undefined;
     const activeWindow = activeWindowOrUndefined(actionPolicy.activeWindow);
     const activeHours = actionPolicy.activeHours === "configured-window" && activeWindow
         ? "configured-window"
@@ -439,6 +450,7 @@ export function resolveCuriosityConfig(raw) {
         shadowModels: stringArrayOrDefault(root.shadowModels, DEFAULT_CURIOSITY_CONFIG.shadowModels),
         logging: {
             retentionDays: integerOrDefault(logging.retentionDays, DEFAULT_CURIOSITY_CONFIG.logging.retentionDays, { min: 1 }),
+            maxStorageBytes: integerOrDefault(logging.maxStorageBytes, DEFAULT_CURIOSITY_CONFIG.logging.maxStorageBytes, { min: 1 }),
             verbose: booleanOrDefault(logging.verbose, DEFAULT_CURIOSITY_CONFIG.logging.verbose),
         },
         actionPolicy: {
@@ -464,6 +476,7 @@ export function resolveCuriosityConfig(raw) {
                     : DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.provider,
                 minIntervalMinutes: numberOrDefault(autonomousStart.minIntervalMinutes, DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.minIntervalMinutes, { min: 0 }),
                 includeEvidence: booleanOrDefault(autonomousStart.includeEvidence, DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.includeEvidence),
+                ...(observatoryBaseUrl ? { observatoryBaseUrl } : {}),
                 ...(autonomousStartTelegram ? { telegram: autonomousStartTelegram } : {}),
             },
         },

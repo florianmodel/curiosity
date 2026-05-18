@@ -49,7 +49,8 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
   },
   shadowModels: [...DEFAULT_SHADOW_MODELS],
   logging: {
-    retentionDays: 7,
+    retentionDays: 100,
+    maxStorageBytes: 10 * 1024 * 1024 * 1024,
     verbose: false,
   },
   actionPolicy: {
@@ -62,12 +63,13 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     retryCooldownMinutes: 5,
   },
   notifications: {
-    autonomousStart: {
-      enabled: false,
-      provider: "telegram",
-      minIntervalMinutes: 0,
-      includeEvidence: true,
-    },
+      autonomousStart: {
+        enabled: false,
+        provider: "telegram",
+        minIntervalMinutes: 0,
+        includeEvidence: true,
+        observatoryBaseUrl: undefined,
+      },
   },
 };
 
@@ -174,6 +176,7 @@ export const curiosityPluginConfigSchemaJson = {
       additionalProperties: false,
       properties: {
         retentionDays: { type: "integer", minimum: 1 },
+        maxStorageBytes: { type: "integer", minimum: 1 },
         verbose: { type: "boolean" },
       },
     },
@@ -255,13 +258,17 @@ export const curiosityPluginConfigSchemaJson = {
               minimum: 0,
               description: "Minimum minutes between autonomous-start notifications.",
             },
-            includeEvidence: {
-              type: "boolean",
-              description: "Include the selected goal evidence in the notification body.",
-            },
-            telegram: {
-              type: "object",
-              additionalProperties: false,
+          includeEvidence: {
+            type: "boolean",
+            description: "Include the selected goal evidence in the notification body.",
+          },
+          observatoryBaseUrl: {
+            type: "string",
+            description: "Optional absolute base URL used to link Telegram receipts to /curiosity run traces.",
+          },
+          telegram: {
+            type: "object",
+            additionalProperties: false,
               properties: {
                 botToken: {
                   type: "string",
@@ -410,6 +417,11 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
     typeof notifications.autonomousStart === "object" && notifications.autonomousStart !== null
       ? (notifications.autonomousStart as Record<string, unknown>)
       : {};
+  const observatoryBaseUrl =
+    typeof autonomousStart.observatoryBaseUrl === "string" &&
+    autonomousStart.observatoryBaseUrl.trim().length > 0
+      ? autonomousStart.observatoryBaseUrl.trim()
+      : undefined;
   const activeWindow = activeWindowOrUndefined(actionPolicy.activeWindow);
   const activeHours =
     actionPolicy.activeHours === "configured-window" && activeWindow
@@ -565,6 +577,11 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
         DEFAULT_CURIOSITY_CONFIG.logging.retentionDays,
         { min: 1 },
       ),
+      maxStorageBytes: integerOrDefault(
+        logging.maxStorageBytes,
+        DEFAULT_CURIOSITY_CONFIG.logging.maxStorageBytes,
+        { min: 1 },
+      ),
       verbose: booleanOrDefault(logging.verbose, DEFAULT_CURIOSITY_CONFIG.logging.verbose),
     },
     actionPolicy: {
@@ -618,6 +635,7 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
           autonomousStart.includeEvidence,
           DEFAULT_CURIOSITY_CONFIG.notifications.autonomousStart.includeEvidence,
         ),
+        ...(observatoryBaseUrl ? { observatoryBaseUrl } : {}),
         ...(autonomousStartTelegram ? { telegram: autonomousStartTelegram } : {}),
       },
     },

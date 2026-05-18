@@ -11,6 +11,13 @@ declare module "openclaw/plugin-sdk/plugin-entry" {
     registerTool: (tool: unknown, opts?: unknown) => void;
     registerCli: (registrar: unknown, opts?: unknown) => void;
     registerService: (service: unknown) => void;
+    registerHttpRoute?: (route: {
+      path: string;
+      auth: "gateway" | "plugin";
+      match?: "exact" | "prefix";
+      handler: unknown;
+      replaceExisting?: boolean;
+    }) => void;
     on: (name: string, handler: (...args: any[]) => unknown) => void;
     runtime?: {
       system?: {

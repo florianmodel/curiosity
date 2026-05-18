@@ -169,6 +169,10 @@
             "type": "integer",
             "minimum": 1
           },
+          "maxStorageBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
           "verbose": {
             "type": "boolean"
           }
@@ -270,13 +274,17 @@
                 "minimum": 0,
                 "description": "Minimum minutes between autonomous-start notifications."
               },
-              "includeEvidence": {
-                "type": "boolean",
-                "description": "Include the selected goal evidence in the notification body."
-              },
-              "telegram": {
-                "type": "object",
-                "additionalProperties": false,
+          "includeEvidence": {
+            "type": "boolean",
+            "description": "Include the selected goal evidence in the notification body."
+          },
+          "observatoryBaseUrl": {
+            "type": "string",
+            "description": "Optional absolute base URL used to link Telegram receipts to /curiosity run traces."
+          },
+          "telegram": {
+            "type": "object",
+            "additionalProperties": false,
                 "properties": {
                   "botToken": {
                     "type": "string",
