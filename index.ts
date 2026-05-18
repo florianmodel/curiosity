@@ -20,6 +20,7 @@ import {
 } from "./src/runtime.js";
 import { createCuriosityInspectTool } from "./src/tool.js";
 import { registerCuriosityCli } from "./src/cli.js";
+import { createCuriosityObservatoryRoute } from "./src/observatory.js";
 
 function resolveWorkspaceDir(api: OpenClawPluginApi, workspaceDir?: string, agentId?: string) {
   if (workspaceDir) {
@@ -103,6 +104,8 @@ export function register(api: OpenClawPluginApi) {
         configuredSurfaces: extractConfiguredSurfaces(api.config as Record<string, unknown>),
         logger: api.logger,
       });
+    const defaultAgentId = resolveDefaultAgentId(api.config);
+    const defaultWorkspaceDir = resolveWorkspaceDir(api, undefined, defaultAgentId);
     let boredomWakeTimer: ReturnType<typeof setInterval> | null = null;
     let boredomRunInFlight = false;
     const stopBoredomWakeLoop = () => {
@@ -117,7 +120,7 @@ export function register(api: OpenClawPluginApi) {
       if (!pluginConfig.boredom.enabled) {
         return;
       }
-      const agentId = resolveDefaultAgentId(api.config);
+      const agentId = defaultAgentId;
       const runReason = "curiosity-boredom-executor";
       const tick = async () => {
         if (boredomRunInFlight) {
@@ -178,13 +181,31 @@ export function register(api: OpenClawPluginApi) {
       { name: "curiosity_inspect", optional: true },
     );
 
+    if (api.registerHttpRoute) {
+      api.registerHttpRoute({
+        path: "/curiosity",
+        auth: "gateway",
+        match: "prefix",
+        handler: createCuriosityObservatoryRoute({
+          workspaceDir: defaultWorkspaceDir,
+          agentId: defaultAgentId,
+          gatewayUrl,
+          runtimeConfig: api.config,
+          resolveManager,
+          logger: api.logger,
+        }),
+      });
+    } else {
+      api.logger.warn?.("curiosity: observatory route unavailable; OpenClaw lacks registerHttpRoute");
+    }
+
     api.registerCli(
       async ({ program, workspaceDir }: any) => {
         await registerCuriosityCli({
           program,
           workspaceDir: workspaceDir ?? resolveWorkspaceDir(api),
           gatewayUrl,
-          defaultAgentId: resolveDefaultAgentId(api.config),
+          defaultAgentId,
           runtimeConfig: api.config,
           resolveManager,
         });

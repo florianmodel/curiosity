@@ -341,7 +341,7 @@ export async function executeCuriosityRun(params) {
         runId,
         agentId: params.agentId,
         success,
-        content: clampOutput(result.stdout || result.stderr),
+        content: result.stdout || result.stderr,
         metadata: {
             command: "openclaw agent",
             exitCode: result.exitCode,

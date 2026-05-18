@@ -17,6 +17,7 @@ describe("curiosity plugin entry", () => {
     const toolSpy = vi.fn();
     const cliSpy = vi.fn();
     const serviceSpy = vi.fn();
+    const httpRouteSpy = vi.fn();
     const onSpy = vi.fn();
 
     register({
@@ -26,12 +27,20 @@ describe("curiosity plugin entry", () => {
       registerTool: toolSpy,
       registerCli: cliSpy,
       registerService: serviceSpy,
+      registerHttpRoute: httpRouteSpy,
       on: onSpy,
     } as any);
 
     expect(toolSpy).toHaveBeenCalledTimes(1);
     expect(cliSpy).toHaveBeenCalledTimes(1);
     expect(serviceSpy).toHaveBeenCalledTimes(1);
+    expect(httpRouteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/curiosity",
+        auth: "gateway",
+        match: "prefix",
+      }),
+    );
     expect(onSpy).toHaveBeenCalledTimes(8);
   });
 
@@ -95,6 +104,7 @@ describe("curiosity plugin entry", () => {
       registerTool: vi.fn(),
       registerCli: vi.fn(),
       registerService: serviceSpy,
+      registerHttpRoute: vi.fn(),
       on: vi.fn(),
     } as any);
 

@@ -44,6 +44,7 @@ export type AutonomousStartNotificationConfig = {
   };
   minIntervalMinutes: number;
   includeEvidence: boolean;
+  observatoryBaseUrl?: string;
 };
 
 export type ActiveWindowConfig = {
@@ -95,6 +96,7 @@ export type CuriosityConfig = {
   shadowModels: string[];
   logging: {
     retentionDays: number;
+    maxStorageBytes: number;
     verbose: boolean;
   };
   actionPolicy: {
@@ -218,6 +220,50 @@ export type QueueSnapshot = {
   budgetUsage: BudgetUsage;
   boredom: BoredomState;
   goals: GoalRecord[];
+};
+
+export type RunUsageRecord = {
+  runId: string;
+  agentId: string;
+  trigger: string;
+  autonomous: boolean;
+  startedAt: number;
+  endedAt?: number;
+  success?: boolean;
+  durationMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+export type AuditEventRecord = {
+  id?: number;
+  ts: number;
+  eventType: string;
+  goalId?: string;
+  runId?: string;
+  payload: Record<string, unknown>;
+};
+
+export type ObservatorySnapshot = QueueSnapshot & {
+  generatedAt: number;
+  workspaceDir: string;
+  curiosityDir: string;
+  retention: {
+    retentionDays: number;
+    maxStorageBytes: number;
+  };
+  recentRuns: RunUsageRecord[];
+  recentEvents: AuditEventRecord[];
+  recentObservations: ObservationRecord[];
+};
+
+export type ObservatoryRunDetail = {
+  generatedAt: number;
+  goal: GoalRecord | null;
+  runUsage: RunUsageRecord | null;
+  events: AuditEventRecord[];
+  observations: ObservationRecord[];
 };
 
 export type CompareSnapshot = {

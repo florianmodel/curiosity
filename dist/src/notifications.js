@@ -1,6 +1,24 @@
 function escapeHtml(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
+function escapeHtmlAttribute(text) {
+    return escapeHtml(text).replace(/"/g, "&quot;");
+}
+function buildObservatoryRunUrl(baseUrl, runId) {
+    const trimmed = baseUrl?.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    try {
+        const url = new URL(trimmed);
+        url.pathname = `${url.pathname.replace(/\/+$/, "")}/curiosity`;
+        url.searchParams.set("run", runId);
+        return url.toString();
+    }
+    catch {
+        return undefined;
+    }
+}
 function clampLine(text, maxChars) {
     const normalized = text.trim().replace(/\s+/g, " ");
     if (normalized.length <= maxChars) {
@@ -33,6 +51,7 @@ export function renderAutonomousResultNotice(params) {
     const detail = params.success
         ? clampLine(params.summary || "The run completed.", 900)
         : clampLine(params.error || params.summary || "The run ended without a concrete outcome.", 900);
+    const observatoryUrl = buildObservatoryRunUrl(params.observatoryBaseUrl, params.runId);
     return [
         `<b>Curiosity run ${escapeHtml(status)}</b>`,
         "",
@@ -41,6 +60,9 @@ export function renderAutonomousResultNotice(params) {
         "",
         `<b>Details</b>: agent <code>${escapeHtml(params.agentId)}</code>, surface <code>${escapeHtml(params.goal.targetSurface)}</code>`,
         `<b>Run</b>: <code>${escapeHtml(params.runId)}</code>`,
+        ...(observatoryUrl
+            ? [`<b>Trace</b>: <a href="${escapeHtmlAttribute(observatoryUrl)}">open observatory</a>`]
+            : []),
     ].join("\n");
 }
 function normalizeTelegramApiBaseUrl(raw) {
@@ -125,6 +147,7 @@ export async function sendAutonomousResultNotice(params) {
             success: params.success,
             error: params.error,
             summary: params.summary,
+            observatoryBaseUrl: config.observatoryBaseUrl,
         }),
         parse_mode: "HTML",
         disable_web_page_preview: true,

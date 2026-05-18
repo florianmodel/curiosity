@@ -34,6 +34,10 @@ function clampContent(text, maxChars = 1600) {
     }
     return `${normalized.slice(0, maxChars - 1)}…`;
 }
+function safePathSegment(value) {
+    const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+    return normalized || "unknown";
+}
 function isHeartbeatAckText(text) {
     const normalized = text.trim();
     if (!normalized) {
@@ -286,6 +290,73 @@ export class CuriosityManager {
         catch (error) {
             this.logger.warn?.(`curiosity: retention prune skipped (${String(error)})`);
         }
+        await this.pruneStorageBudget();
+    }
+    async pruneStorageBudget() {
+        const maxBytes = this.config.logging.maxStorageBytes;
+        if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+            return;
+        }
+        const size = await this.directorySize(this.curiosityDir);
+        if (size <= maxBytes) {
+            return;
+        }
+        const candidates = await this.listPrunableFiles(this.curiosityDir);
+        let currentSize = size;
+        for (const candidate of candidates) {
+            if (currentSize <= maxBytes) {
+                break;
+            }
+            try {
+                await fs.rm(candidate.path, { force: true });
+                currentSize -= candidate.size;
+            }
+            catch {
+                // Best-effort retention pruning should never interrupt the curiosity loop.
+            }
+        }
+    }
+    async directorySize(dir) {
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            let total = 0;
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    total += await this.directorySize(fullPath);
+                }
+                else if (entry.isFile()) {
+                    const stat = await fs.stat(fullPath);
+                    total += stat.size;
+                }
+            }
+            return total;
+        }
+        catch {
+            return 0;
+        }
+    }
+    async listPrunableFiles(dir) {
+        try {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            const files = [];
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    files.push(...(await this.listPrunableFiles(fullPath)));
+                    continue;
+                }
+                if (!entry.isFile() || entry.name === "curiosity.db") {
+                    continue;
+                }
+                const stat = await fs.stat(fullPath);
+                files.push({ path: fullPath, size: stat.size, mtimeMs: stat.mtimeMs });
+            }
+            return files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+        }
+        catch {
+            return [];
+        }
     }
     async appendAuditEvent(params) {
         const db = await this.ensureDb();
@@ -424,13 +495,44 @@ export class CuriosityManager {
             ...(satiatedUntil ? { satiatedUntil } : {}),
         };
     }
+    async writeRawObservationContent(input) {
+        if (input.content.length === 0) {
+            return {};
+        }
+        const date = new Date(input.createdAt).toISOString().slice(0, 10);
+        const runSegment = safePathSegment(input.runId ?? "unscoped");
+        const rawDir = path.join(this.curiosityDir, "raw", date, runSegment);
+        const filename = `${input.createdAt}-${safePathSegment(input.kind)}-${randomUUID()}.txt`;
+        const rawPath = path.join(rawDir, filename);
+        try {
+            await fs.mkdir(rawDir, { recursive: true });
+            await fs.writeFile(rawPath, input.content, "utf8");
+        }
+        catch (error) {
+            this.logger.warn?.(`curiosity: raw observation write skipped (${String(error)})`);
+            return {};
+        }
+        return {
+            rawContentPath: rawPath,
+            rawContentRelativePath: path.relative(this.curiosityDir, rawPath),
+            rawContentChars: input.content.length,
+        };
+    }
     async recordObservation(input) {
         const db = await this.ensureDb();
         const createdAt = input.createdAt ?? Date.now();
-        const content = clampContent(input.content ?? "");
+        const rawContent = input.content ?? "";
+        const rawMetadata = await this.writeRawObservationContent({
+            kind: input.kind,
+            createdAt,
+            runId: input.runId,
+            content: rawContent,
+        });
+        const content = clampContent(rawContent);
         const keywords = extractKeywords(content);
         const metadata = {
             ...(input.metadata ?? {}),
+            ...rawMetadata,
             keywords,
         };
         db.prepare(`INSERT INTO observations (
@@ -778,6 +880,35 @@ export class CuriosityManager {
             metadata: parseJsonObject(row.metadata_json),
         };
     }
+    parseRunUsageRow(row) {
+        return {
+            runId: String(row.run_id),
+            agentId: String(row.agent_id),
+            trigger: String(row.trigger),
+            autonomous: Number(row.autonomous) === 1,
+            startedAt: Number(row.started_at),
+            endedAt: typeof row.ended_at === "number" ? Number(row.ended_at) : undefined,
+            success: typeof row.success === "number"
+                ? Number(row.success) === 1
+                : typeof row.success === "boolean"
+                    ? row.success
+                    : undefined,
+            durationMs: typeof row.duration_ms === "number" ? Number(row.duration_ms) : undefined,
+            inputTokens: typeof row.input_tokens === "number" ? Number(row.input_tokens) : undefined,
+            outputTokens: typeof row.output_tokens === "number" ? Number(row.output_tokens) : undefined,
+            totalTokens: typeof row.total_tokens === "number" ? Number(row.total_tokens) : undefined,
+        };
+    }
+    parseEventRow(row) {
+        return {
+            id: typeof row.id === "number" ? Number(row.id) : undefined,
+            ts: Number(row.ts),
+            eventType: String(row.event_type),
+            goalId: asString(row.goal_id),
+            runId: asString(row.run_id),
+            payload: parseJsonObject(row.payload_json),
+        };
+    }
     async listGoalsByStatus(statuses, limit = 20) {
         const db = await this.ensureDb();
         if (statuses.length === 0) {
@@ -791,6 +922,27 @@ export class CuriosityManager {
     }
     async listRecentCompletedGoals(limit = 10) {
         return this.listGoalsByStatus(["completed", "failed"], limit);
+    }
+    async listRecentRunUsage(limit = 20) {
+        const db = await this.ensureDb();
+        const rows = db
+            .prepare(`SELECT * FROM run_usage ORDER BY started_at DESC LIMIT ?`)
+            .all(limit);
+        return rows.map((row) => this.parseRunUsageRow(row));
+    }
+    async listRecentEvents(limit = 100) {
+        const db = await this.ensureDb();
+        const rows = db
+            .prepare(`SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT ?`)
+            .all(limit);
+        return rows.map((row) => this.parseEventRow(row));
+    }
+    async listRecentObservations(limit = 100) {
+        const db = await this.ensureDb();
+        const rows = db
+            .prepare(`SELECT * FROM observations ORDER BY created_at DESC, id DESC LIMIT ?`)
+            .all(limit);
+        return rows.map((row) => this.parseObservationRow(row));
     }
     async markGoalInProgress(params) {
         const db = await this.ensureDb();
@@ -810,13 +962,6 @@ export class CuriosityManager {
                 agentId: params.agentId,
             },
         });
-    }
-    async listRecentObservations(limit = 100) {
-        const db = await this.ensureDb();
-        const rows = db
-            .prepare(`SELECT * FROM observations ORDER BY created_at DESC LIMIT ?`)
-            .all(limit);
-        return rows.map((row) => this.parseObservationRow(row));
     }
     configuredSurfaces() {
         return [...this.configuredSurfaceSet];
@@ -1483,6 +1628,27 @@ export class CuriosityManager {
         ]);
         return { paused, budgetUsage, boredom, goals };
     }
+    async observatorySnapshot(limit = 50) {
+        const [queue, recentRuns, recentEvents, recentObservations] = await Promise.all([
+            this.queueSnapshot(limit),
+            this.listRecentRunUsage(limit),
+            this.listRecentEvents(limit * 2),
+            this.listRecentObservations(limit * 2),
+        ]);
+        return {
+            ...queue,
+            generatedAt: Date.now(),
+            workspaceDir: this.workspaceDir,
+            curiosityDir: this.curiosityDir,
+            retention: {
+                retentionDays: this.config.logging.retentionDays,
+                maxStorageBytes: this.config.logging.maxStorageBytes,
+            },
+            recentRuns,
+            recentEvents,
+            recentObservations,
+        };
+    }
     async inspectIdentifier(identifier) {
         const db = await this.ensureDb();
         const goalRow = db
@@ -1520,6 +1686,53 @@ export class CuriosityManager {
                 payload: parseJsonObject(event.payload_json),
             })),
         };
+    }
+    async observatoryRunDetail(identifier, limit = 200) {
+        const db = await this.ensureDb();
+        const goalRow = db
+            .prepare(`SELECT * FROM goals WHERE goal_id = ? OR last_run_id = ? LIMIT 1`)
+            .get(identifier, identifier);
+        const goal = goalRow ? this.parseGoalRow(goalRow) : null;
+        const runId = goal?.lastRunId ?? identifier;
+        const goalId = goal?.goalId ?? "";
+        const runRow = db
+            .prepare(`SELECT * FROM run_usage WHERE run_id = ? LIMIT 1`)
+            .get(runId);
+        const events = db
+            .prepare(`SELECT * FROM events WHERE goal_id = ? OR run_id = ? ORDER BY ts DESC, id DESC LIMIT ?`)
+            .all(goalId, runId, limit);
+        const observations = db
+            .prepare(`SELECT * FROM observations WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`)
+            .all(runId, limit);
+        return {
+            generatedAt: Date.now(),
+            goal,
+            runUsage: runRow ? this.parseRunUsageRow(runRow) : null,
+            events: events.map((event) => this.parseEventRow(event)),
+            observations: observations.map((observation) => this.parseObservationRow(observation)),
+        };
+    }
+    async readRawObservationContent(observationId) {
+        const db = await this.ensureDb();
+        const row = db
+            .prepare(`SELECT metadata_json FROM observations WHERE id = ? LIMIT 1`)
+            .get(observationId);
+        const metadata = parseJsonObject(row?.metadata_json);
+        const rawPath = asString(metadata.rawContentPath);
+        if (!rawPath) {
+            return null;
+        }
+        const resolved = path.resolve(rawPath);
+        const curiosityRoot = path.resolve(this.curiosityDir);
+        if (resolved !== curiosityRoot && !resolved.startsWith(`${curiosityRoot}${path.sep}`)) {
+            return null;
+        }
+        try {
+            return await fs.readFile(resolved, "utf8");
+        }
+        catch {
+            return null;
+        }
     }
     async compareWindow(windowMs) {
         const db = await this.ensureDb();
