@@ -253,7 +253,7 @@ function observatoryHtml(): string {
     function renderStats(data) {
       $("subtitle").textContent = data.workspaceDir + " | generated " + fmtTime(data.generatedAt);
       $("stats").innerHTML = [
-        stat("Paused", data.paused ? "yes" : "no"),
+        stat("State", data.paused ? "paused" : "active"),
         stat("Boredom", ((data.boredom?.level ?? 0) * 100).toFixed(1) + "%"),
         stat("Autonomous runs 24h", data.budgetUsage?.autonomousRuns24h ?? 0),
         stat("Tokens 24h", data.budgetUsage?.autonomousTokens24h ?? 0),
