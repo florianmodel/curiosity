@@ -89,6 +89,10 @@ function numberFromRecord(record, key) {
     const value = record[key];
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
+function optionalNumberFromRecord(record, key) {
+    const value = record?.[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 function parseScoreCard(value) {
     const record = parseJsonObject(value);
     const shadowRankings = parseJsonObject(record.shadow_rankings);
@@ -980,7 +984,8 @@ export class CuriosityManager {
             return "max_attempts_reached";
         }
         const retryCooldownMs = this.config.actionPolicy.retryCooldownMinutes * 60 * 1000;
-        if (goal.attempts > 0 && retryCooldownMs > 0 && now - goal.updatedAt < retryCooldownMs) {
+        const lastAttemptAt = optionalNumberFromRecord(goal.outcome, "finishedAt") ?? goal.updatedAt;
+        if (goal.attempts > 0 && retryCooldownMs > 0 && now - lastAttemptAt < retryCooldownMs) {
             return "retry_cooldown_active";
         }
         return null;

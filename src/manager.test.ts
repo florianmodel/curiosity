@@ -596,6 +596,57 @@ describe("CuriosityManager", () => {
     expect(forced.selected).toBe(true);
   });
 
+  it("does not extend retry cooldown when an existing goal is merely rescored", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: NO_GOAL_SOURCES,
+      actionPolicy: {
+        minimumSensingSteps: 2,
+        maxAttemptsPerGoal: 3,
+        retryCooldownMinutes: 0.001,
+      },
+      boredom: {
+        enabled: true,
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+        satiationMinutes: 0,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "External activity anchor.",
+    });
+    const first = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-retry-refresh-1",
+      trigger: "heartbeat",
+    });
+    expect(first.selected).toBe(true);
+    if (!first.selected) {
+      return;
+    }
+    await manager.finalizeAutonomousRun({
+      runId: "run-retry-refresh-1",
+      goalId: first.goal.goalId,
+      agentId: "main",
+      trigger: "heartbeat",
+      success: false,
+      error: "model auth failed",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const second = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-retry-refresh-2",
+      trigger: "heartbeat",
+    });
+
+    expect(second.selected).toBe(true);
+  });
+
   it("manual force selection authors a fallback goal when drive gates are quiet", async () => {
     const manager = await createManager({
       budgets: { autonomousRunsPerDay: 3 },
