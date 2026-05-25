@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import type { CuriosityManager } from "./manager.js";
 import type { GoalRecord, GoalSelectionDecision } from "./types.js";
 
@@ -256,6 +260,98 @@ export function renderGoalRunMessage(goal: GoalRecord): string {
   ].join("\n");
 }
 
+function normalizeImportError(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+}
+
+function findOpenClawPackageRootFromPath(value: string): string | null {
+  const normalized = path.resolve(value);
+  const marker = `${path.sep}node_modules${path.sep}openclaw${path.sep}`;
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex >= 0) {
+    return normalized.slice(0, markerIndex + marker.length - 1);
+  }
+  const suffix = `${path.sep}node_modules${path.sep}openclaw`;
+  return normalized.endsWith(suffix) ? normalized : null;
+}
+
+function openClawPackageRootCandidates(): string[] {
+  const candidates = new Set<string>();
+  const envRoot = process.env.OPENCLAW_PACKAGE_ROOT?.trim();
+  if (envRoot) {
+    candidates.add(envRoot);
+  }
+  for (const arg of process.argv) {
+    const root = findOpenClawPackageRootFromPath(arg);
+    if (root) {
+      candidates.add(root);
+    }
+  }
+  const home = process.env.HOME?.trim();
+  if (home) {
+    candidates.add(path.join(home, ".npm-global", "lib", "node_modules", "openclaw"));
+  }
+  candidates.add("/usr/local/lib/node_modules/openclaw");
+  candidates.add("/opt/homebrew/lib/node_modules/openclaw");
+  candidates.add("/usr/lib/node_modules/openclaw");
+  return [...candidates];
+}
+
+function npmGlobalRoot(): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile("npm", ["root", "-g"], { timeout: 5000 }, (error, stdout) => {
+      if (error) {
+        resolve(null);
+        return;
+      }
+      const root = stdout.trim();
+      resolve(root || null);
+    });
+  });
+}
+
+async function importGatewayRuntimeFromOpenClawRoot(
+  openclawRoot: string,
+): Promise<{ GatewayClient: GatewayClientConstructor } | null> {
+  try {
+    const packageRequire = createRequire(pathToFileURL(path.join(openclawRoot, "package.json")).href);
+    const resolved = packageRequire.resolve("openclaw/plugin-sdk/gateway-runtime");
+    const imported = (await import(pathToFileURL(resolved).href)) as {
+      GatewayClient?: GatewayClientConstructor;
+      default?: { GatewayClient?: GatewayClientConstructor };
+    };
+    const GatewayClient = imported.GatewayClient ?? imported.default?.GatewayClient;
+    return GatewayClient ? { GatewayClient } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadGatewayRuntime(): Promise<{ GatewayClient: GatewayClientConstructor }> {
+  try {
+    return (await import("openclaw/plugin-sdk/gateway-runtime")) as {
+      GatewayClient: GatewayClientConstructor;
+    };
+  } catch (directError) {
+    for (const root of openClawPackageRootCandidates()) {
+      const runtime = await importGatewayRuntimeFromOpenClawRoot(root);
+      if (runtime) {
+        return runtime;
+      }
+    }
+    const globalRoot = await npmGlobalRoot();
+    if (globalRoot) {
+      const runtime = await importGatewayRuntimeFromOpenClawRoot(path.join(globalRoot, "openclaw"));
+      if (runtime) {
+        return runtime;
+      }
+    }
+    throw new Error(
+      `Unable to load OpenClaw gateway runtime from local or global install (${normalizeImportError(directError)})`,
+    );
+  }
+}
+
 export async function runOpenClawAgent(params: {
   agentId: string;
   runId: string;
@@ -263,9 +359,7 @@ export async function runOpenClawAgent(params: {
   timeoutSeconds: number;
   gatewayUrl: string;
 }): Promise<CuriosityAgentRunResult> {
-  const { GatewayClient } = (await import("openclaw/plugin-sdk/gateway-runtime")) as {
-    GatewayClient: GatewayClientConstructor;
-  };
+  const { GatewayClient } = await loadGatewayRuntime();
   const timeoutMs = Math.max(10_000, (params.timeoutSeconds + 30) * 1000);
 
   return new Promise((resolve, reject) => {
@@ -482,13 +576,64 @@ export async function executeCuriosityRun(params: {
     };
   }
 
-  const result = await runOpenClawAgent({
-    agentId: params.agentId,
-    runId,
-    message: renderGoalRunMessage(selection.goal),
-    timeoutSeconds: params.timeoutSeconds,
-    gatewayUrl: params.gatewayUrl,
-  });
+  let result: CuriosityAgentRunResult;
+  try {
+    result = await runOpenClawAgent({
+      agentId: params.agentId,
+      runId,
+      message: renderGoalRunMessage(selection.goal),
+      timeoutSeconds: params.timeoutSeconds,
+      gatewayUrl: params.gatewayUrl,
+    });
+  } catch (error) {
+    const errorText = normalizeImportError(error);
+    await params.manager.recordObservation({
+      kind: "tool_failure",
+      runId,
+      agentId: params.agentId,
+      success: false,
+      content: errorText,
+      metadata: {
+        command: "openclaw agent",
+        executorError: true,
+      },
+    });
+    const outcome = await params.manager.finalizeAutonomousRun({
+      runId,
+      goalId: selection.goal.goalId,
+      agentId: params.agentId,
+      trigger: params.trigger,
+      success: false,
+      durationMs: Date.now() - startedAt,
+      error: errorText,
+    });
+    const refreshedGoal = await params.manager.findGoalByRunId(runId);
+    const resultNotice = refreshedGoal
+      ? await params.manager.notifyAutonomousFinish({
+          runId,
+          agentId: params.agentId,
+          goal: refreshedGoal,
+          success: false,
+          error: outcome.error,
+        })
+      : undefined;
+    return {
+      selected: true,
+      executed: true,
+      success: false,
+      runId,
+      agentId: params.agentId,
+      goalId: selection.goal.goalId,
+      adoptedFromAgentId:
+        "adoptedFromAgentId" in selection ? selection.adoptedFromAgentId : undefined,
+      exitCode: null,
+      stdout: "",
+      stderr: errorText,
+      outcome,
+      resultNotice,
+      startNotice: "notification" in selection ? selection.notification : undefined,
+    };
+  }
   const success = result.exitCode === 0;
   await params.manager.recordObservation({
     kind: success ? "assistant_output" : "tool_failure",
