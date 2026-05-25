@@ -98,6 +98,84 @@ function computeRndNovelty(candidate, frequency) {
     const rarity = candidate.keywords.map((keyword) => 1 - clamp((frequency.get(keyword) ?? 0) / 5));
     return clamp(average(rarity));
 }
+function goalKeywords(goal) {
+    return [
+        ...extractKeywords(goal.title),
+        ...goal.evidence.flatMap((entry) => extractKeywords(entry)),
+        ...goal.proposedAction.split(/\s+/).flatMap((entry) => extractKeywords(entry)),
+    ];
+}
+function buildSelfContextKeywords(context) {
+    if (context.selfContextKeywords && context.selfContextKeywords.length > 0) {
+        return [...new Set(context.selfContextKeywords)];
+    }
+    return [
+        ...context.observations.flatMap((observation) => Array.isArray(observation.metadata.keywords) &&
+            observation.metadata.keywords.every((value) => typeof value === "string")
+            ? observation.metadata.keywords
+            : extractKeywords(observation.content)),
+        ...context.openGoals.flatMap(goalKeywords),
+        ...(context.recentCompletedGoals ?? []).flatMap(goalKeywords),
+        ...context.recentToolNames.flatMap((toolName) => extractKeywords(toolName)),
+    ].slice(0, 240);
+}
+function computeSemanticDistance(candidate, selfContextKeywords) {
+    if (selfContextKeywords.length === 0) {
+        return 0.75;
+    }
+    return clamp(jaccardDistance(candidate.keywords, selfContextKeywords));
+}
+function computeSelfReferenceDensity(candidate, selfContextKeywords) {
+    if (candidate.keywords.length === 0 || selfContextKeywords.length === 0) {
+        return 0;
+    }
+    const selfSet = new Set(selfContextKeywords);
+    const overlap = candidate.keywords.filter((keyword) => selfSet.has(keyword)).length;
+    return clamp(overlap / candidate.keywords.length);
+}
+function computeFrontierRadius(boredomDrive) {
+    return clamp(0.35 + boredomDrive * 0.45);
+}
+function computeFrontierFit(distance, radius) {
+    return clamp(1 - Math.abs(distance - radius) / 0.45);
+}
+function computeActionAffordance(candidate, config) {
+    let score = 0.45;
+    if (candidate.source === "frontier_exploration") {
+        score += 0.25;
+    }
+    if (candidate.targetSurface === "web" || candidate.targetSurface === "search" || candidate.targetSurface === "browser") {
+        score += config.actionPolicy.allowExternalActions ? 0.25 : -0.25;
+    }
+    if (candidate.targetSurface === "workspace") {
+        score += 0.1;
+    }
+    if (candidate.metadata.forced === true) {
+        score += 0.05;
+    }
+    if (/(build|create|test|compare|simulate|visuali[sz]e|transform|artifact|experiment|probe)/i.test(candidate.proposedAction)) {
+        score += 0.15;
+    }
+    return clamp(score);
+}
+function computeStructuralRecursionPenalty(candidate) {
+    const parts = candidate.title
+        .split(":")
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
+    if (parts.length <= 1) {
+        return 0;
+    }
+    let repeatedAdjacent = 0;
+    for (let index = 1; index < parts.length; index += 1) {
+        if (parts[index] === parts[index - 1]) {
+            repeatedAdjacent += 1;
+        }
+    }
+    const duplicateParts = parts.length - new Set(parts).size;
+    const nestingPressure = Math.max(0, parts.length - 3) * 0.12;
+    return clamp(repeatedAdjacent * 0.35 + duplicateParts * 0.18 + nestingPressure);
+}
 function computeReachability(candidate, observations) {
     const recentKeywordSets = observations.slice(0, 12).map((observation) => Array.isArray(observation.metadata.keywords) &&
         observation.metadata.keywords.every((value) => typeof value === "string")
@@ -127,6 +205,9 @@ function computeUncertainty(candidate) {
     if (candidate.source === "external_follow_up") {
         score += 0.2;
     }
+    if (candidate.source === "frontier_exploration") {
+        score += 0.5;
+    }
     if (candidate.source === "idle_boredom") {
         score += 0.2;
     }
@@ -153,6 +234,7 @@ function computeImpact(candidate, recentToolNames) {
         low_coverage_surface: 0.63,
         skill_opportunity: 0.55,
         external_follow_up: 0.76,
+        frontier_exploration: 0.78,
         idle_boredom: 0.6,
     };
     return clamp(sourceWeights[candidate.source] + repeatedToolBonus);
@@ -170,6 +252,9 @@ function computeCurriculum(candidate) {
     }
     if (candidate.source === "failed_tool_attempt") {
         score += 0.2;
+    }
+    if (candidate.source === "frontier_exploration") {
+        score += 0.35;
     }
     if (candidate.source === "idle_boredom") {
         score += 0.2;
@@ -189,27 +274,52 @@ function computeShadowRankings(params) {
         plan2explore_uncertainty: params.uncertainty,
         impact_progress: params.progress,
         llm_curriculum_reflection: params.curriculum,
+        frontier_distance: params.frontierFit,
     };
 }
 export function scoreCandidate(candidate, context, config) {
     const frequency = buildKeywordFrequency(context.observations);
+    const selfContextKeywords = buildSelfContextKeywords(context);
     const rndNovelty = computeRndNovelty(candidate, frequency);
     const reachability = computeReachability(candidate, context.observations);
-    const noveltyComposite = clamp((rndNovelty + reachability) / 2);
+    const semanticDistance = computeSemanticDistance(candidate, selfContextKeywords);
+    const selfReferenceDensity = computeSelfReferenceDensity(candidate, selfContextKeywords);
     const uncertainty = computeUncertainty(candidate);
     const progress = computeImpact(candidate, context.recentToolNames);
     const curriculum = computeCurriculum(candidate);
     const boredomDrive = clamp(context.boredomDrive ?? 0);
+    const frontierRadius = computeFrontierRadius(boredomDrive);
+    const frontierFit = config.frontier.enabled ? computeFrontierFit(semanticDistance, frontierRadius) : 0;
+    const actionAffordance = computeActionAffordance(candidate, config);
+    const structuralRecursionPenalty = computeStructuralRecursionPenalty(candidate);
+    const predictionErrorProxy = clamp(uncertainty * 0.45 + semanticDistance * 0.35 + rndNovelty * 0.2);
+    const learningProgressGuess = clamp(progress * 0.45 + curriculum * 0.3 + actionAffordance * 0.25);
+    const noveltyComposite = clamp(rndNovelty * 0.35 +
+        reachability * 0.25 +
+        semanticDistance * 0.3 +
+        frontierFit * 0.1 -
+        selfReferenceDensity * 0.2 -
+        structuralRecursionPenalty * 0.25);
     const boredomBonus = boredomDrive * config.boredom.maxScoreBonus;
     const costPenalty = clamp(candidate.estimatedCost / 8000, 0, 0.15);
     const riskPenalty = clamp(candidate.risk, 0, 1) * 0.25;
+    const frontierBonus = config.frontier.enabled && boredomDrive > 0
+        ? frontierFit * config.frontier.distanceWeight * boredomDrive
+        : 0;
+    const selfReferencePenalty = config.frontier.enabled ? selfReferenceDensity * config.frontier.selfReferencePenalty * boredomDrive : 0;
+    const actionBonus = config.frontier.enabled ? actionAffordance * config.frontier.actionAffordanceWeight : 0;
+    const recursionPenalty = config.frontier.enabled ? structuralRecursionPenalty * config.frontier.recursionPenalty : 0;
     const activeEnsemble = clamp(noveltyComposite * config.ensembleWeights.novelty +
         uncertainty * config.ensembleWeights.uncertainty +
         progress * config.ensembleWeights.progress +
         curriculum * config.ensembleWeights.curriculum -
         costPenalty -
         riskPenalty +
-        boredomBonus);
+        boredomBonus +
+        frontierBonus +
+        actionBonus -
+        selfReferencePenalty -
+        recursionPenalty);
     return {
         rnd_novelty: clamp(rndNovelty),
         episodic_reachability: clamp(reachability),
@@ -217,6 +327,14 @@ export function scoreCandidate(candidate, context, config) {
         impact_progress: clamp(progress),
         llm_curriculum_reflection: clamp(curriculum),
         boredom_drive: boredomDrive,
+        semantic_distance: semanticDistance,
+        self_reference_density: selfReferenceDensity,
+        frontier_radius: frontierRadius,
+        frontier_fit: frontierFit,
+        prediction_error_proxy: predictionErrorProxy,
+        learning_progress_guess: learningProgressGuess,
+        action_affordance: actionAffordance,
+        structural_recursion_penalty: structuralRecursionPenalty,
         novelty_composite: noveltyComposite,
         cost_penalty: costPenalty,
         risk_penalty: riskPenalty,
@@ -226,6 +344,7 @@ export function scoreCandidate(candidate, context, config) {
             uncertainty,
             progress,
             curriculum,
+            frontierFit,
         }),
     };
 }

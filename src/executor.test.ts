@@ -23,6 +23,7 @@ const NO_GOAL_SOURCES: GoalSourcesConfig = {
   lowCoverageSurfaces: false,
   skillOpportunities: false,
   externalFollowUps: false,
+  frontierExploration: false,
 };
 
 afterEach(async () => {
@@ -48,6 +49,7 @@ type CuriosityConfigOverrides = Partial<
     | "ensembleWeights"
     | "thresholds"
     | "boredom"
+    | "frontier"
     | "logging"
     | "actionPolicy"
     | "notifications"
@@ -58,6 +60,7 @@ type CuriosityConfigOverrides = Partial<
   ensembleWeights?: Partial<CuriosityConfig["ensembleWeights"]>;
   thresholds?: Partial<CuriosityConfig["thresholds"]>;
   boredom?: Partial<CuriosityConfig["boredom"]>;
+  frontier?: Partial<CuriosityConfig["frontier"]>;
   logging?: Partial<CuriosityConfig["logging"]>;
   actionPolicy?: Partial<CuriosityConfig["actionPolicy"]>;
   notifications?: {
@@ -90,6 +93,10 @@ function mergeConfig(overrides: CuriosityConfigOverrides = {}): CuriosityConfig 
     boredom: {
       ...DEFAULT_CURIOSITY_CONFIG.boredom,
       ...overrides.boredom,
+    },
+    frontier: {
+      ...DEFAULT_CURIOSITY_CONFIG.frontier,
+      ...overrides.frontier,
     },
     logging: {
       ...DEFAULT_CURIOSITY_CONFIG.logging,

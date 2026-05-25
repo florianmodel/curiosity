@@ -8,6 +8,7 @@ export type GoalSource =
   | "low_coverage_surface"
   | "skill_opportunity"
   | "external_follow_up"
+  | "frontier_exploration"
   | "idle_boredom";
 
 export type GoalStatus =
@@ -62,6 +63,7 @@ export type GoalSourcesConfig = {
   lowCoverageSurfaces: boolean;
   skillOpportunities: boolean;
   externalFollowUps: boolean;
+  frontierExploration: boolean;
 };
 
 export type CuriosityConfig = {
@@ -94,6 +96,14 @@ export type CuriosityConfig = {
     satiationMinutes: number;
   };
   shadowModels: string[];
+  frontier: {
+    enabled: boolean;
+    maxSeedProbes: number;
+    distanceWeight: number;
+    selfReferencePenalty: number;
+    actionAffordanceWeight: number;
+    recursionPenalty: number;
+  };
   logging: {
     retentionDays: number;
     maxStorageBytes: number;
@@ -147,6 +157,14 @@ export type ScoreCard = {
   impact_progress: number;
   llm_curriculum_reflection: number;
   boredom_drive: number;
+  semantic_distance: number;
+  self_reference_density: number;
+  frontier_radius: number;
+  frontier_fit: number;
+  prediction_error_proxy: number;
+  learning_progress_guess: number;
+  action_affordance: number;
+  structural_recursion_penalty: number;
   novelty_composite: number;
   cost_penalty: number;
   risk_penalty: number;

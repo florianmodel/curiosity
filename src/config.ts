@@ -25,6 +25,7 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     lowCoverageSurfaces: true,
     skillOpportunities: false,
     externalFollowUps: true,
+    frontierExploration: true,
   },
   ensembleWeights: {
     novelty: 0.3,
@@ -48,6 +49,14 @@ export const DEFAULT_CURIOSITY_CONFIG: CuriosityConfig = {
     satiationMinutes: 5,
   },
   shadowModels: [...DEFAULT_SHADOW_MODELS],
+  frontier: {
+    enabled: true,
+    maxSeedProbes: 5,
+    distanceWeight: 0.24,
+    selfReferencePenalty: 0.28,
+    actionAffordanceWeight: 0.12,
+    recursionPenalty: 0.22,
+  },
   logging: {
     retentionDays: 100,
     maxStorageBytes: 10 * 1024 * 1024 * 1024,
@@ -98,6 +107,10 @@ export const curiosityPluginConfigSchemaJson = {
         lowCoverageSurfaces: { type: "boolean" },
         skillOpportunities: { type: "boolean" },
         externalFollowUps: { type: "boolean" },
+        frontierExploration: {
+          type: "boolean",
+          description: "Allow boredom to create abstract frontier-seeking candidates beyond recent self-context.",
+        },
         bootstrapExploration: {
           type: "boolean",
           description: "Allow curiosity to create a first bounded orientation goal when it has no prior observations.",
@@ -126,6 +139,26 @@ export const curiosityPluginConfigSchemaJson = {
     shadowModels: {
       type: "array",
       items: { type: "string" },
+    },
+    frontier: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        enabled: {
+          type: "boolean",
+          description: "Enable abstract semantic-distance pressure for curiosity scoring.",
+        },
+        maxSeedProbes: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Maximum reachable seed probes before a frontier run commits or reports that sampled seeds were boring.",
+        },
+        distanceWeight: { type: "number", minimum: 0, maximum: 1 },
+        selfReferencePenalty: { type: "number", minimum: 0, maximum: 1 },
+        actionAffordanceWeight: { type: "number", minimum: 0, maximum: 1 },
+        recursionPenalty: { type: "number", minimum: 0, maximum: 1 },
+      },
     },
     boredom: {
       type: "object",
@@ -401,6 +434,10 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
     typeof root.logging === "object" && root.logging !== null
       ? (root.logging as Record<string, unknown>)
       : {};
+  const frontier =
+    typeof root.frontier === "object" && root.frontier !== null
+      ? (root.frontier as Record<string, unknown>)
+      : {};
   const boredom =
     typeof root.boredom === "object" && root.boredom !== null
       ? (root.boredom as Record<string, unknown>)
@@ -484,6 +521,10 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
       externalFollowUps: booleanOrDefault(
         goalSources.externalFollowUps,
         DEFAULT_CURIOSITY_CONFIG.goalSources.externalFollowUps,
+      ),
+      frontierExploration: booleanOrDefault(
+        goalSources.frontierExploration,
+        DEFAULT_CURIOSITY_CONFIG.goalSources.frontierExploration,
       ),
     },
     ensembleWeights: {
@@ -571,6 +612,34 @@ export function resolveCuriosityConfig(raw: unknown): CuriosityConfig {
       };
     })(),
     shadowModels: stringArrayOrDefault(root.shadowModels, DEFAULT_CURIOSITY_CONFIG.shadowModels),
+    frontier: {
+      enabled: booleanOrDefault(frontier.enabled, DEFAULT_CURIOSITY_CONFIG.frontier.enabled),
+      maxSeedProbes: integerOrDefault(
+        frontier.maxSeedProbes,
+        DEFAULT_CURIOSITY_CONFIG.frontier.maxSeedProbes,
+        { min: 1, max: 20 },
+      ),
+      distanceWeight: numberOrDefault(
+        frontier.distanceWeight,
+        DEFAULT_CURIOSITY_CONFIG.frontier.distanceWeight,
+        { min: 0, max: 1 },
+      ),
+      selfReferencePenalty: numberOrDefault(
+        frontier.selfReferencePenalty,
+        DEFAULT_CURIOSITY_CONFIG.frontier.selfReferencePenalty,
+        { min: 0, max: 1 },
+      ),
+      actionAffordanceWeight: numberOrDefault(
+        frontier.actionAffordanceWeight,
+        DEFAULT_CURIOSITY_CONFIG.frontier.actionAffordanceWeight,
+        { min: 0, max: 1 },
+      ),
+      recursionPenalty: numberOrDefault(
+        frontier.recursionPenalty,
+        DEFAULT_CURIOSITY_CONFIG.frontier.recursionPenalty,
+        { min: 0, max: 1 },
+      ),
+    },
     logging: {
       retentionDays: integerOrDefault(
         logging.retentionDays,

@@ -33,6 +33,7 @@ const NO_GOAL_SOURCES: GoalSourcesConfig = {
   lowCoverageSurfaces: false,
   skillOpportunities: false,
   externalFollowUps: false,
+  frontierExploration: false,
 };
 
 type CuriosityConfigOverrides = Partial<
@@ -43,6 +44,7 @@ type CuriosityConfigOverrides = Partial<
     | "ensembleWeights"
     | "thresholds"
     | "boredom"
+    | "frontier"
     | "logging"
     | "actionPolicy"
     | "notifications"
@@ -53,6 +55,7 @@ type CuriosityConfigOverrides = Partial<
   ensembleWeights?: Partial<CuriosityConfig["ensembleWeights"]>;
   thresholds?: Partial<CuriosityConfig["thresholds"]>;
   boredom?: Partial<CuriosityConfig["boredom"]>;
+  frontier?: Partial<CuriosityConfig["frontier"]>;
   logging?: Partial<CuriosityConfig["logging"]>;
   actionPolicy?: Partial<CuriosityConfig["actionPolicy"]>;
   notifications?: {
@@ -85,6 +88,10 @@ function mergeConfig(overrides: CuriosityConfigOverrides = {}): CuriosityConfig 
     boredom: {
       ...DEFAULT_CURIOSITY_CONFIG.boredom,
       ...overrides.boredom,
+    },
+    frontier: {
+      ...DEFAULT_CURIOSITY_CONFIG.frontier,
+      ...overrides.frontier,
     },
     logging: {
       ...DEFAULT_CURIOSITY_CONFIG.logging,
@@ -275,6 +282,41 @@ describe("CuriosityManager", () => {
     expect(second.selected).toBe(false);
     if (!second.selected) {
       expect(second.reason).toBe("budget_exhausted");
+    }
+  });
+
+  it("selects an abstract frontier candidate when boredom has enough self-context", async () => {
+    const manager = await createManager({
+      budgets: { autonomousRunsPerDay: 3 },
+      goalSources: { ...NO_GOAL_SOURCES, frontierExploration: true },
+      thresholds: { act: 0.6 },
+      boredom: {
+        idleStartMinutes: 1,
+        saturationMinutes: 2,
+        wakeLevel: 0.6,
+      },
+    });
+    await manager.recordObservation({
+      kind: "assistant_output",
+      createdAt: Date.now() - 3 * 60 * 1000,
+      content: "The recent loop keeps inspecting OpenClaw curiosity manager logs and workspace state.",
+      metadata: { keywords: ["openclaw", "curiosity", "manager", "workspace"] },
+    });
+    await manager.getBoredomState(Date.now() - 3 * 60 * 1000);
+
+    const decision = await manager.selectGoalForRun({
+      agentId: "main",
+      runId: "run-frontier",
+      trigger: "heartbeat",
+    });
+
+    expect(decision.selected).toBe(true);
+    if (decision.selected) {
+      expect(decision.goal.source).toBe("frontier_exploration");
+      expect(decision.goal.targetSurface).toBe("web");
+      expect(decision.goal.evidence.join(" ")).toContain("Probe budget is 5");
+      expect(decision.goal.scoresByModel.semantic_distance).toBeGreaterThan(0);
+      expect(decision.goal.scoresByModel.action_affordance).toBeGreaterThan(0.5);
     }
   });
 
