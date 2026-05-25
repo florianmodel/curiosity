@@ -152,6 +152,7 @@ The page shell loads at `/curiosity`, then uses the gateway token from the URL f
 - Telegram receipts intentionally stay short; use `/curiosity?run=<run-id>` for the richer trace.
 - Set `notifications.autonomousStart.observatoryBaseUrl` to the dashboard origin if you want Telegram receipts to include a clickable run trace link.
 - Boredom starts growing after `boredom.idleStartMinutes`, reaches full strength at `boredom.saturationMinutes`, contributes up to `boredom.maxScoreBonus`, and is suppressed for `boredom.satiationMinutes` after an autonomous run.
+- Frontier scoring expands the search radius under boredom, rewards semantic distance from recent self-context, penalizes self-reference density and recursive titles, and logs candidate rejection reasons for later model comparison.
 - Curiosity executor runs carry drive signals, neutral outcome criteria, and constraints; the agent must author its own bounded intention from inside the run.
 - Bored curiosity should pick its own topic by salience, uncertainty, leverage, and reversibility; the drive label is not treated as the topic.
 - The first visible background notification should be the outcome receipt. The run should act first, then report the outcome and evidence.

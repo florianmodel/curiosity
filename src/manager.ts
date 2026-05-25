@@ -79,6 +79,9 @@ const AUTONOMOUS_START_NOTICE_META_KEY = "autonomous_start_notice_sent_at";
 const NO_SENSING_AFFORDANCE_TOKEN = "NO_SENSING_AFFORDANCE";
 const SELF_AUTHORED_PROPOSED_ACTION =
   "Author one bounded intention from the available context, choose the topic by neutral opportunity rather than by the drive label, use available tools before narrating, produce one concrete reversible outcome or evidenced blocker, and stop.";
+const FRONTIER_PROPOSED_ACTION =
+  "Probe up to the configured number of reachable seed sources, reject seeds that are too close to recent self-context or too structureless to act on, then choose the first seed that creates prediction error and a concrete affordance; build, transform, compare, test, or otherwise act on it in one bounded reversible artifact, and stop.";
+const STALE_GOAL_PREFIX = "Re-evaluate stale goal";
 const SAFE_LOCAL_TOOLS = new Set([
   "read",
   "write",
@@ -129,6 +132,32 @@ function stableFingerprint(input: {
   return [input.source, input.targetSurface.toLowerCase(), input.title.toLowerCase()]
     .map((value) => value.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""))
     .join("|");
+}
+
+function compactNestedTitle(title: string): string {
+  const parts = title
+    .split(":")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return title.trim();
+  }
+  const collapsed: string[] = [];
+  for (const part of parts) {
+    const previous = collapsed.at(-1);
+    if (previous?.toLowerCase() === part.toLowerCase()) {
+      continue;
+    }
+    collapsed.push(part);
+  }
+  return collapsed.join(": ");
+}
+
+function staleGoalTitle(goalTitle: string): string {
+  const compacted = compactNestedTitle(goalTitle);
+  return compacted.toLowerCase().startsWith(`${STALE_GOAL_PREFIX.toLowerCase()}:`)
+    ? compacted
+    : `${STALE_GOAL_PREFIX}: ${compacted}`;
 }
 
 function uniq(values: string[]): string[] {
@@ -185,6 +214,14 @@ function parseScoreCard(value: unknown): ScoreCard {
     impact_progress: numberFromRecord(record, "impact_progress"),
     llm_curriculum_reflection: numberFromRecord(record, "llm_curriculum_reflection"),
     boredom_drive: numberFromRecord(record, "boredom_drive"),
+    semantic_distance: numberFromRecord(record, "semantic_distance"),
+    self_reference_density: numberFromRecord(record, "self_reference_density"),
+    frontier_radius: numberFromRecord(record, "frontier_radius"),
+    frontier_fit: numberFromRecord(record, "frontier_fit"),
+    prediction_error_proxy: numberFromRecord(record, "prediction_error_proxy"),
+    learning_progress_guess: numberFromRecord(record, "learning_progress_guess"),
+    action_affordance: numberFromRecord(record, "action_affordance"),
+    structural_recursion_penalty: numberFromRecord(record, "structural_recursion_penalty"),
     novelty_composite: numberFromRecord(record, "novelty_composite"),
     cost_penalty: numberFromRecord(record, "cost_penalty"),
     risk_penalty: numberFromRecord(record, "risk_penalty"),
@@ -1349,6 +1386,51 @@ export class CuriosityManager {
     ];
   }
 
+  private buildFrontierCandidates(params: {
+    observations: ObservationRecord[];
+    openGoals: GoalRecord[];
+    recentCompleted: GoalRecord[];
+    boredom: BoredomState;
+  }): CandidateGoal[] {
+    if (!this.config.frontier.enabled || !this.config.goalSources.frontierExploration) {
+      return [];
+    }
+    if (params.boredom.level < this.config.boredom.wakeLevel) {
+      return [];
+    }
+    const selfContextSize =
+      params.observations.length + params.openGoals.length + params.recentCompleted.length;
+    if (selfContextSize === 0) {
+      return [];
+    }
+    const targetSurface = this.config.actionPolicy.allowExternalActions ? "web" : "workspace";
+    const radius = Math.round((0.35 + Math.min(1, params.boredom.level) * 0.45) * 100) / 100;
+    return [
+      {
+        source: "frontier_exploration",
+        title: "Search beyond the current semantic frontier",
+        evidence: [
+          `Recent exploration is dense enough to define a self-context of ${selfContextSize} item(s).`,
+          `Boredom level is ${params.boredom.level.toFixed(2)}, so the search radius expands toward ${radius}.`,
+          `Probe budget is ${this.config.frontier.maxSeedProbes} reachable seed source(s); reject boring or structureless seeds before committing.`,
+        ],
+        proposedAction: FRONTIER_PROPOSED_ACTION,
+        targetSurface,
+        estimatedCost: targetSurface === "web" ? 520 : 260,
+        risk: targetSurface === "web" ? 0.16 : 0.08,
+        keywords: extractKeywords(
+          "frontier semantic distance reachable seed prediction error concrete affordance build transform compare test artifact",
+        ),
+        metadata: {
+          seedProbeLimit: this.config.frontier.maxSeedProbes,
+          semanticFrontier: true,
+          radius,
+          targetSurface,
+        },
+      },
+    ];
+  }
+
   private async buildCandidates(params: {
     agentId: string;
     observations: ObservationRecord[];
@@ -1366,6 +1448,15 @@ export class CuriosityManager {
 
     candidates.push(
       ...this.buildBootstrapCandidates({
+        observations: params.observations,
+        openGoals: params.openGoals,
+        recentCompleted: params.recentCompleted,
+        boredom: params.boredom,
+      }),
+    );
+
+    candidates.push(
+      ...this.buildFrontierCandidates({
         observations: params.observations,
         openGoals: params.openGoals,
         recentCompleted: params.recentCompleted,
@@ -1436,7 +1527,7 @@ export class CuriosityManager {
       for (const goal of params.openGoals.filter((goal) => goal.updatedAt < staleCutoff).slice(0, 5)) {
         candidates.push({
           source: "stale_open_question",
-          title: `Re-evaluate stale goal: ${goal.title}`,
+          title: staleGoalTitle(goal.title),
           evidence: goal.evidence,
           proposedAction: SELF_AUTHORED_PROPOSED_ACTION,
           targetSurface: goal.targetSurface,
@@ -1784,7 +1875,13 @@ export class CuriosityManager {
     for (const candidate of candidates) {
       const scoreCard = scoreCandidate(
         candidate,
-        { observations, openGoals, recentToolNames, boredomDrive: boredom.level },
+        {
+          observations,
+          openGoals,
+          recentCompletedGoals: recentCompleted,
+          recentToolNames,
+          boredomDrive: boredom.level,
+        },
         this.config,
       );
       const goal = await this.upsertGoal({
@@ -1831,6 +1928,24 @@ export class CuriosityManager {
       return true;
     });
     if (!selected) {
+      for (const goal of ranked.slice(0, 10)) {
+        const blockedReason = this.goalRetryBlocked(goal, now);
+        await this.appendAuditEvent({
+          eventType: "candidate_rejected",
+          goalId: goal.goalId,
+          runId: params.runId,
+          payload: {
+            title: goal.title,
+            reason:
+              blockedReason ??
+              (goal.scoresByModel.active_ensemble < this.config.thresholds.act
+                ? "below_threshold"
+                : "no_policy_slot"),
+            scores: goal.scoresByModel,
+            targetSurface: goal.targetSurface,
+          },
+        });
+      }
       await this.appendAuditEvent({
         eventType: "selection_skipped",
         runId: params.runId,
@@ -1847,6 +1962,29 @@ export class CuriosityManager {
         budgetUsage,
         candidateCount: candidates.length,
       };
+    }
+
+    for (const goal of ranked.slice(0, 10)) {
+      if (goal.goalId === selected.goalId) {
+        continue;
+      }
+      const blockedReason = this.goalRetryBlocked(goal, now);
+      await this.appendAuditEvent({
+        eventType: "candidate_rejected",
+        goalId: goal.goalId,
+        runId: params.runId,
+        payload: {
+          title: goal.title,
+          reason:
+            blockedReason ??
+            (goal.scoresByModel.active_ensemble < this.config.thresholds.act
+              ? "below_threshold"
+              : "ranked_below_selected"),
+          selectedGoalId: selected.goalId,
+          scores: goal.scoresByModel,
+          targetSurface: goal.targetSurface,
+        },
+      });
     }
 
     const db = await this.ensureDb();
