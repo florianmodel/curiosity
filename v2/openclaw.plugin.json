@@ -1,0 +1,20 @@
+{
+  "id": "curiosity-v2",
+  "name": "Curiosity v2",
+  "description": "Persistent interest, personality, project, relationship, and reflection development.",
+  "contracts": { "tools": ["curiosity_v2"] },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean" },
+      "stage": { "type": "integer", "const": 0 },
+      "wakeIntervalMinutes": { "type": "number", "minimum": 1 },
+      "maxAutonomousRunsPerDay": { "type": "integer", "minimum": 1 },
+      "maxAutonomousTokensPerDay": { "type": "integer", "minimum": 1 },
+      "allowPublicParticipation": { "type": "boolean" },
+      "allowDirectConversations": { "type": "boolean" },
+      "allowSelfModification": { "type": "boolean" }
+    }
+  }
+}

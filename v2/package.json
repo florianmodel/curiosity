@@ -1,0 +1,21 @@
+{
+  "name": "@flo/openclaw-curiosity-v2",
+  "version": "0.0.1",
+  "description": "Persistent interest and personality development for an autonomous OpenClaw agent",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=22.5.0" },
+  "peerDependencies": { "openclaw": ">=2026.4.3" },
+  "peerDependenciesMeta": { "openclaw": { "optional": true } },
+  "devDependencies": {
+    "@types/node": "^24.6.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  },
+  "openclaw": { "extensions": ["./dist/index.js"] },
+  "files": ["dist", "openclaw.plugin.json", "package.json", "README.md"]
+}
