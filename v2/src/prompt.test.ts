@@ -8,6 +8,8 @@ describe("development prompt", () => {
     expect(prompt).toContain("answer truthfully");
     expect(prompt).toContain("Economic stage is 0");
     expect(prompt).toContain("Never remove or weaken the audit trail");
+    expect(prompt).toContain("take at least one concrete, externally grounded step");
+    expect(prompt).toContain("Do not return HEARTBEAT_OK merely because there is no queued task");
     expect(prompt).not.toMatch(/build a (website|game)/i);
   });
 });
