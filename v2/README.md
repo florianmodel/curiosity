@@ -30,7 +30,7 @@ State is stored per workspace at:
 
 The `curiosity_v2` tool lets the agent recall its snapshot and persist meaningful revisions. It cannot spend money. Self-modifications that describe weakening immutable kernel constraints are rejected, while actual code changes remain governed by OpenClaw's existing filesystem and approval controls.
 
-The accepted product direction and boundaries are documented in [`../V2_PRODUCT_DECISIONS.md`](../V2_PRODUCT_DECISIONS.md).
+The accepted product direction and boundaries are documented in [`V2_PRODUCT_DECISIONS.md`](V2_PRODUCT_DECISIONS.md).
 
 ## Current scope and next increments
 
