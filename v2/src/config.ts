@@ -9,6 +9,8 @@ export const DEFAULT_CONFIG: V2Config = {
   allowPublicParticipation: true,
   allowDirectConversations: true,
   allowSelfModification: true,
+  allowWebFetch: true,
+  allowNotes: true,
 };
 
 export function resolveConfig(value: unknown): V2Config {
@@ -26,5 +28,7 @@ export function resolveConfig(value: unknown): V2Config {
     allowPublicParticipation: boolean("allowPublicParticipation", DEFAULT_CONFIG.allowPublicParticipation),
     allowDirectConversations: boolean("allowDirectConversations", DEFAULT_CONFIG.allowDirectConversations),
     allowSelfModification: boolean("allowSelfModification", DEFAULT_CONFIG.allowSelfModification),
+    allowWebFetch: boolean("allowWebFetch", DEFAULT_CONFIG.allowWebFetch),
+    allowNotes: boolean("allowNotes", DEFAULT_CONFIG.allowNotes),
   };
 }

@@ -7,6 +7,8 @@ export const DEFAULT_CONFIG = {
     allowPublicParticipation: true,
     allowDirectConversations: true,
     allowSelfModification: true,
+    allowWebFetch: true,
+    allowNotes: true,
 };
 export function resolveConfig(value) {
     const input = value && typeof value === "object" ? value : {};
@@ -21,5 +23,7 @@ export function resolveConfig(value) {
         allowPublicParticipation: boolean("allowPublicParticipation", DEFAULT_CONFIG.allowPublicParticipation),
         allowDirectConversations: boolean("allowDirectConversations", DEFAULT_CONFIG.allowDirectConversations),
         allowSelfModification: boolean("allowSelfModification", DEFAULT_CONFIG.allowSelfModification),
+        allowWebFetch: boolean("allowWebFetch", DEFAULT_CONFIG.allowWebFetch),
+        allowNotes: boolean("allowNotes", DEFAULT_CONFIG.allowNotes),
     };
 }

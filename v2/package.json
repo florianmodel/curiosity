@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "simulate": "node scripts/simulate-heartbeat.ts"
   },
   "engines": { "node": ">=22.5.0" },
   "peerDependencies": { "openclaw": ">=2026.4.3" },

@@ -15,10 +15,35 @@ npm install
 npm run build
 openclaw plugins install /absolute/path/to/curiosity/v2
 openclaw plugins enable curiosity-v2
-openclaw config set tools.alsoAllow '["curiosity_v2"]'
+openclaw config set tools.alsoAllow '["curiosity_v2", "curiosity_web_fetch", "curiosity_note_write"]'
 ```
 
-Use a heartbeat schedule to provide autonomous developmental turns. The plugin adds the current developmental memory and operating contract on heartbeat prompts. During ordinary user work it supplies compact continuity context.
+The plugin registers three optional tools:
+
+- `curiosity_v2` — developmental memory (snapshot, interests, projects, turn reports, visits, self-modifications).
+- `curiosity_web_fetch` — reads public web pages for exploration and evidence. Private/link-local/metadata addresses are blocked; redirects are re-validated.
+- `curiosity_note_write` — writes durable artifacts under `<workspace>/creations/<year-month>/`. Path-jailed, extension-whitelisted, refuses silent overwrite.
+
+All three must be allowed in OpenClaw tool policy or heartbeats will have nothing to act with. Set `allowWebFetch`/`allowNotes` to `false` in plugin config to remove them entirely.
+
+## The developmental turn contract
+
+Every heartbeat that receives the developmental prompt must end with a `record_turn` report: a mode plus either a concrete action (`kind`, `target`, `outcome`, `evidence`) or an honest `blockedReason`. `HEARTBEAT_OK` is only legitimate after an acted turn or a recorded block. Interests and projects can carry `nextReturnAt`; overdue ones surface as due hooks in every later snapshot. Visited locations are remembered so repetition requires justification.
+
+Cold start runs a seeding protocol: inventory the environment, gather one or two real observations, propose exactly three candidate interests grounded in evidence, adopt the most alive one, and take its first concrete step immediately.
+
+Budget honesty: only successful (and in-flight) heartbeats consume the daily run ceiling; failed model/auth attempts remain in the ledger for audit but never block future turns; token counts are recorded per run when the runtime reports them.
+
+## Behavioral regression harness
+
+```bash
+npm test                       # unit contract tests (no network)
+OPENAI_API_KEY=sk-... npm run simulate   # full simulated heartbeat against a real model
+```
+
+The simulator exits non-zero unless the model completes the turn contract (at least one acted `record_turn`). Run it after any prompt change.
+
+Use a heartbeat schedule to provide autonomous developmental turns. During ordinary user work the plugin supplies compact continuity context.
 
 ## Stored state
 

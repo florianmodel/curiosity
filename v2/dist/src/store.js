@@ -41,15 +41,20 @@ export class DevelopmentStore {
         return db.prepare("SELECT body_json FROM records WHERE kind=? ORDER BY updated_at DESC LIMIT ?").all(kind, limit).map(row => parse(row.body_json));
     }
     async snapshot() {
+        const interests = await this.list("interest", 30);
+        const projects = await this.list("project", 30);
         return {
             self: (await this.list("self", 1))[0],
-            interests: await this.list("interest", 30),
-            projects: await this.list("project", 30),
+            interests,
+            projects,
             recentExperiences: await this.list("experience", 40),
             relationships: await this.list("relationship", 30),
             artifacts: await this.list("artifact", 50),
             resourceRequests: await this.list("resource_request", 20),
             selfModifications: await this.list("self_modification", 20),
+            turns: await this.list("turn", 8),
+            visits: await this.list("visit", 12),
+            dueHooks: dueHooks(interests, projects, Date.now()),
         };
     }
     async recordRunStart(runId, now = Date.now()) {
@@ -59,8 +64,25 @@ export class DevelopmentStore {
         (await this.database()).prepare("UPDATE runs SET ended_at=?,success=?,tokens=? WHERE run_id=?").run(Date.now(), success ? 1 : 0, tokens, runId);
     }
     async usage24h(now = Date.now()) {
-        const row = (await this.database()).prepare("SELECT COUNT(*) runs, COALESCE(SUM(tokens),0) tokens FROM runs WHERE started_at>=?").get(now - 86_400_000);
+        // Successful runs consume the ceiling. In-flight runs reserve it until they end.
+        // Failed runs (success=0) stay auditable but never block future developmental turns;
+        // orphaned rows (gateway crash) age out of the window naturally.
+        const row = (await this.database()).prepare("SELECT COUNT(*) runs, COALESCE(SUM(tokens),0) tokens FROM runs WHERE started_at>=? AND (success=1 OR (success IS NULL AND ended_at IS NULL))").get(now - 86_400_000);
         return { runs: Number(row.runs), tokens: Number(row.tokens) };
     }
     id(prefix) { return `${prefix}-${randomUUID()}`; }
+}
+function dueHooks(interests, projects, now) {
+    const hooks = [];
+    for (const interest of interests) {
+        if (typeof interest.nextReturnAt === "number" && interest.nextReturnAt <= now && interest.state !== "abandoned") {
+            hooks.push({ refId: interest.interestId, kind: "interest", name: interest.name, dueAt: interest.nextReturnAt, hint: interest.openQuestions?.[0] });
+        }
+    }
+    for (const project of projects) {
+        if (typeof project.nextReturnAt === "number" && project.nextReturnAt <= now && project.state !== "abandoned" && project.state !== "completed") {
+            hooks.push({ refId: project.projectId, kind: "project", name: project.name, dueAt: project.nextReturnAt, hint: project.nextMove });
+        }
+    }
+    return hooks.sort((a, b) => a.dueAt - b.dueAt);
 }

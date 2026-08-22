@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { Artifact, Experience, Interest, Project, Relationship, ResourceRequest, SelfModification, SelfRevision, Snapshot } from "./types.js";
+import type { Artifact, DueHook, Experience, Interest, Project, Relationship, ResourceRequest, SelfModification, SelfRevision, Snapshot, Turn, Visit } from "./types.js";
 
 const json = (value: unknown) => JSON.stringify(value);
 const parse = <T>(value: unknown): T => JSON.parse(String(value)) as T;
@@ -44,15 +44,20 @@ export class DevelopmentStore {
   }
 
   async snapshot(): Promise<Snapshot> {
+    const interests = await this.list<Interest>("interest", 30);
+    const projects = await this.list<Project>("project", 30);
     return {
       self: (await this.list<SelfRevision>("self", 1))[0],
-      interests: await this.list<Interest>("interest", 30),
-      projects: await this.list<Project>("project", 30),
+      interests,
+      projects,
       recentExperiences: await this.list<Experience>("experience", 40),
       relationships: await this.list<Relationship>("relationship", 30),
       artifacts: await this.list<Artifact>("artifact", 50),
       resourceRequests: await this.list<ResourceRequest>("resource_request", 20),
       selfModifications: await this.list<SelfModification>("self_modification", 20),
+      turns: await this.list<Turn>("turn", 8),
+      visits: await this.list<Visit>("visit", 12),
+      dueHooks: dueHooks(interests, projects, Date.now()),
     };
   }
 
@@ -63,8 +68,26 @@ export class DevelopmentStore {
     (await this.database()).prepare("UPDATE runs SET ended_at=?,success=?,tokens=? WHERE run_id=?").run(Date.now(), success ? 1 : 0, tokens, runId);
   }
   async usage24h(now = Date.now()): Promise<{runs:number;tokens:number}> {
-    const row = (await this.database()).prepare("SELECT COUNT(*) runs, COALESCE(SUM(tokens),0) tokens FROM runs WHERE started_at>=?").get(now - 86_400_000) as {runs:number;tokens:number};
+    // Successful runs consume the ceiling. In-flight runs reserve it until they end.
+    // Failed runs (success=0) stay auditable but never block future developmental turns;
+    // orphaned rows (gateway crash) age out of the window naturally.
+    const row = (await this.database()).prepare("SELECT COUNT(*) runs, COALESCE(SUM(tokens),0) tokens FROM runs WHERE started_at>=? AND (success=1 OR (success IS NULL AND ended_at IS NULL))").get(now - 86_400_000) as {runs:number;tokens:number};
     return { runs: Number(row.runs), tokens: Number(row.tokens) };
   }
   id(prefix: string): string { return `${prefix}-${randomUUID()}`; }
+}
+
+function dueHooks(interests: Interest[], projects: Project[], now: number): DueHook[] {
+  const hooks: DueHook[] = [];
+  for (const interest of interests) {
+    if (typeof interest.nextReturnAt === "number" && interest.nextReturnAt <= now && interest.state !== "abandoned") {
+      hooks.push({ refId: interest.interestId, kind: "interest", name: interest.name, dueAt: interest.nextReturnAt, hint: interest.openQuestions?.[0] });
+    }
+  }
+  for (const project of projects) {
+    if (typeof project.nextReturnAt === "number" && project.nextReturnAt <= now && project.state !== "abandoned" && project.state !== "completed") {
+      hooks.push({ refId: project.projectId, kind: "project", name: project.name, dueAt: project.nextReturnAt, hint: project.nextMove });
+    }
+  }
+  return hooks.sort((a, b) => a.dueAt - b.dueAt);
 }

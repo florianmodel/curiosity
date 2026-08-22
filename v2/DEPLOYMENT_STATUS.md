@@ -1,6 +1,28 @@
 # Curiosity v2 deployment status
 
-Last updated: 2026-07-15 (Europe/Berlin)
+Last updated: 2026-08-22 (Europe/Berlin)
+
+## Behavioral diagnosis (2026-08-22)
+
+Observed: generic reflections, no internet exploration, no creations, no visible internal motivation.
+
+Root causes found in code (all fixed in this version):
+
+1. **No hands.** The only registered tool was `curiosity_v2` — a diary. The prompt demanded externally grounded action while providing no way to act. Fix: `curiosity_web_fetch` (SSRF-guarded) and `curiosity_note_write` (path-jailed artifacts under `<workspace>/creations/`). Both optional; allow them in tool policy.
+2. **Poisoned budget.** Failed quota/auth runs consumed the daily ceiling, silently disabling the developmental prompt; token accounting was never wired. Fix: failures stay in the ledger but no longer block; in-flight runs reserve budget; real token counts recorded on agent_end.
+3. **Prohibition-shaped prompt.** Agency instructions were buried among constraints with an empty memory snapshot offering no attractors. Fix: agency-led prompt with affordances list, due hooks, visit ledger, a hard turn contract (`record_turn` required), and a cold-start seeding protocol.
+
+Verification: 28 unit tests cover gating, SSRF guards, path jailing, turn-report validation, and prompt contract. `OPENAI_API_KEY=... npm run simulate` runs a full heartbeat against a live model and fails unless the turn contract is satisfied.
+
+## Deploying the fix
+
+```bash
+npm ci && npm test && npm run build
+rsync -a --delete ./ <remote-user>@<server-address>:~/plugins/curiosity-v2/
+ssh <remote-user>@<server-address> 'openclaw plugins install ~/plugins/curiosity-v2 --force && openclaw plugins enable curiosity-v2 && openclaw config set tools.alsoAllow '\''["curiosity_v2", "curiosity_web_fetch", "curiosity_note_write"]'\'' && openclaw gateway restart'
+```
+
+Then watch the first two permitted heartbeats for: a `record_turn` with action kind `web_fetch` or `note_write`, at least one file appearing under `<workspace>/creations/`, and visits accumulating. If a heartbeat still ends without a turn report, check whether OpenClaw actually exposed the three tools to that run before touching the prompt again.
 
 ## Current state
 

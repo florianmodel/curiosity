@@ -11,6 +11,8 @@ export type V2Config = {
   allowPublicParticipation: boolean;
   allowDirectConversations: boolean;
   allowSelfModification: boolean;
+  allowWebFetch: boolean;
+  allowNotes: boolean;
 };
 
 export type SelfRevision = {
@@ -38,6 +40,7 @@ export type Interest = {
   connections: string[];
   returnCount: number;
   lastEngagedAt?: number;
+  nextReturnAt?: number;
 };
 
 export type Project = {
@@ -50,6 +53,7 @@ export type Project = {
   intention: string;
   nextMove: string;
   artifactIds: string[];
+  nextReturnAt?: number;
 };
 
 export type Experience = {
@@ -99,6 +103,41 @@ export type SelfModification = {
   rollback: string;
 };
 
+export type TurnAction = {
+  kind: string;
+  target?: string;
+  outcome: string;
+  evidence?: string[];
+};
+
+export type Turn = {
+  turnId: string;
+  runId?: string;
+  createdAt: number;
+  mode: Mode;
+  action?: TurnAction;
+  artifactIds?: string[];
+  surprise?: string;
+  nextHook?: { note: string; dueAt?: number; interestId?: string; projectId?: string };
+  blockedReason?: string;
+};
+
+export type Visit = {
+  visitId: string;
+  createdAt: number;
+  kind: "web" | "file" | "other";
+  location: string;
+  note?: string;
+};
+
+export type DueHook = {
+  refId: string;
+  kind: "interest" | "project";
+  name: string;
+  dueAt: number;
+  hint?: string;
+};
+
 export type Snapshot = {
   self?: SelfRevision;
   interests: Interest[];
@@ -108,4 +147,7 @@ export type Snapshot = {
   artifacts: Artifact[];
   resourceRequests: ResourceRequest[];
   selfModifications: SelfModification[];
+  turns: Turn[];
+  visits: Visit[];
+  dueHooks: DueHook[];
 };
