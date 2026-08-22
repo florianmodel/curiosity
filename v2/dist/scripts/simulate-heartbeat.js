@@ -11,10 +11,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DevelopmentStore } from "../dist/src/store.js";
-import { renderDevelopmentPrompt } from "../dist/src/prompt.js";
-import { createDevelopmentTool } from "../dist/src/tool.js";
-import { DEFAULT_CONFIG } from "../dist/src/config.js";
+import { DevelopmentStore } from "../src/store.js";
+import { renderDevelopmentPrompt } from "../src/prompt.js";
+import { createDevelopmentTool } from "../src/tool.js";
+import { DEFAULT_CONFIG } from "../src/config.js";
 const BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 const MODEL = process.env.SIM_MODEL ?? "gpt-4.1-mini";
 const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "curiosity-sim-"));

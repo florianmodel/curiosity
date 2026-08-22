@@ -12,10 +12,11 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { DevelopmentStore } from "../dist/src/store.js";
-import { renderDevelopmentPrompt } from "../dist/src/prompt.js";
-import { createDevelopmentTool } from "../dist/src/tool.js";
-import { DEFAULT_CONFIG } from "../dist/src/config.js";
+import { DevelopmentStore } from "../src/store.ts";
+import { renderDevelopmentPrompt } from "../src/prompt.ts";
+import { createDevelopmentTool } from "../src/tool.ts";
+import { DEFAULT_CONFIG } from "../src/config.ts";
+import type { Turn } from "../src/types.ts";
 
 const BASE_URL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
 const MODEL = process.env.SIM_MODEL ?? "gpt-4.1-mini";
@@ -94,7 +95,7 @@ for (let step = 0; step < 8; step++) {
 }
 
 const finalSnapshot = await store.snapshot();
-const turns = finalSnapshot.turns;
+const turns: Turn[] = finalSnapshot.turns;
 const acted = turns.some(turn => turn.action && !turn.blockedReason);
 console.log(`\n# verdict`);
 console.log(JSON.stringify({
