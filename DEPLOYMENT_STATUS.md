@@ -2,7 +2,7 @@
 
 ## Current live status — 2026-09-13
 
-Curiosity v2 is deployed to the Hetzner OpenClaw gateway and has passed one live behavioral smoke test. OpenClaw is `2026.9.4`, the gateway is healthy, and the selected model is `openai/gpt-5.6-luna`. The obsolete v1 `curiosity` plugin is disabled. The pilot allows web fetch, search, notes, and projects; public participation, direct conversations, and self-modification are disabled.
+Curiosity v2 is deployed to a remote OpenClaw gateway and has passed one live behavioral smoke test. OpenClaw is `2026.9.4`, the gateway is healthy, and the selected model is `openai/gpt-5.6-luna`. The obsolete v1 `curiosity` plugin is disabled. The pilot allows web fetch, search, notes, and projects; public participation, direct conversations, and self-modification are disabled.
 
 The first successful run created the interest **Accidental habitats** and the artifact `creations/2026-09/cap-that-carried-a-neighborhood.md`. It reported 116,849 tokens, demonstrating that the configured 50,000-token ceiling is a next-session guard rather than a hard in-flight cap.
 
@@ -30,17 +30,17 @@ Verification: 28 unit tests cover gating, SSRF guards, path jailing, turn-report
 
 ```bash
 npm ci && npm test && npm run build
-rsync -a --delete ./ <remote-user>@<server-address>:~/plugins/curiosity-v2/
-ssh <remote-user>@<server-address> 'openclaw plugins install ~/plugins/curiosity-v2 --force && openclaw plugins enable curiosity-v2 && openclaw config set tools.alsoAllow '\''["curiosity_v2", "curiosity_web_fetch", "curiosity_note_write"]'\'' && openclaw gateway restart'
+rsync -a --delete ./ <remote-user>@<server-address>:<remote-plugin-path>/
+ssh <remote-user>@<server-address> 'openclaw plugins install <remote-plugin-path> --force && openclaw plugins enable curiosity-v2 && openclaw config set tools.alsoAllow '\''["curiosity_v2", "curiosity_web_fetch", "curiosity_note_write"]'\'' && openclaw gateway restart'
 ```
 
 Then watch the first two permitted heartbeats for: a `record_turn` with action kind `web_fetch` or `note_write`, at least one file appearing under `<workspace>/creations/`, and visits accumulating. If a heartbeat still ends without a turn report, check whether OpenClaw actually exposed the three tools to that run before touching the prompt again.
 
 ## Historical state before the current redeployment
 
-Curiosity v2 is deployed on the Hetzner host `<remote-host>` and is enabled. The OpenClaw gateway is healthy and reachable on its loopback interface.
+Curiosity v2 is deployed on the configured remote host and is enabled. The OpenClaw gateway is healthy and reachable on its loopback interface.
 
-- Server: `<remote-user>@<server-address>`
+- Server: configured remote host (kept private)
 - OpenClaw: `2026.7.1`
 - Node.js: `24.18.0`
 - Model: `openai/gpt-5.6-terra`
@@ -147,7 +147,7 @@ If two or more permitted turns remain inspection-only, the next v2 increment sho
 ## Operational notes
 
 - The gateway binds only to `127.0.0.1:18789`; it is not publicly exposed by the Hetzner firewall.
-- SSH access is restricted by the Hetzner firewall to the operator's public IPv4 address. If `ssh <remote-user>@<server-address>` times out, check the current address with `curl -4 https://api.ipify.org`, update the firewall's incoming TCP/22 source rule, and retry. Keep the rule limited to the single current address; do not leave it open to `Any IPv4`.
+- SSH access is restricted by the provider firewall to the operator's current public IPv4 address. If SSH times out, check the current address with `curl -4 https://api.ipify.org`, update the provider's incoming TCP/22 source rule, and retry. Keep the rule limited to the single current address; do not leave it open to `Any IPv4`.
 - Do not provide personal payment credentials. Stage 0 exposes no spending tool.
 - The server config backup created before migration repair is:
 

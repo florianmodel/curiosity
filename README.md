@@ -139,7 +139,7 @@ Curiosity runs inside the OpenClaw gateway. On a remote VPS, connect only after 
 curl -4 https://api.ipify.org
 ```
 
-Then connect and wait for the remote prompt before running server commands:
+Then connect to the configured remote host and wait for the remote prompt before running server commands:
 
 ```bash
 ssh <remote-user>@<server-address>
@@ -159,7 +159,7 @@ If the dashboard is loopback-only, keep this tunnel running in a separate laptop
 ssh -N -L 18789:127.0.0.1:18789 <remote-user>@<server-address>
 ```
 
-Open `http://127.0.0.1:18789/` locally. The separate [`private-operator-runbook`](../../private-operator-runbook) runbook contains the firewall, service, update, and recovery details for that host.
+Open `http://127.0.0.1:18789/` locally. Keep provider-specific hostnames, addresses, usernames, firewall rules, and recovery notes in a private operator runbook, not in this repository.
 
 From the source checkout:
 

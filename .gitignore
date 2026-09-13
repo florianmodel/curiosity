@@ -3,3 +3,9 @@ node_modules/
 npm-debug.log*
 .openclaw/
 coverage/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12

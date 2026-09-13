@@ -14,7 +14,7 @@ function jsonResponse(value: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
-const lookup: LookupLike = async () => [{ address: "93.184.216.34", family: 4 }];
+const lookup: LookupLike = async () => [{ address: "192.0.2.1", family: 4 }];
 
 describe("searchWeb", () => {
   it("uses the native OpenClaw provider when supplied", async () => {

@@ -34,7 +34,7 @@ No live Mastodon write was performed. Tests and the smoke test establish mechani
 
 ## Live setup still needed
 
-Follow `README.md` to install into the selected OpenClaw gateway, set the agent/workspace and heartbeat configuration, and check actual tool exposure. Supply the Mastodon instance and account token through the gateway environment. Native search, browser, execution, and any project hosting remain deployment capabilities that must be configured separately.
+Follow `README.md` to install into the selected OpenClaw gateway, set the agent/workspace and heartbeat configuration, and check actual tool exposure. Supply the Mastodon instance and account token through the gateway environment. Native search, browser, execution, and any project hosting remain deployment capabilities that must be configured separately. Keep deployment addresses and operator identities private.
 
 The first real heartbeat has now been verified against the installed OpenClaw version. Continue checking actual tool exposure and several subsequent opportunities. The runtime declarations were checked against local OpenClaw source; the live smoke test covered one gateway integration path.
 
