@@ -1,0 +1,242 @@
+{
+  "id": "wander",
+  "name": "Wander",
+  "description": "Radius-expanding autonomous curiosity: the model authors its own candidate curiosities, an embedding-based frontier scorer picks one, and a persistent exploration map remembers where it has been.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "boredom": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "idleStartMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minutes of no meaningful activity before boredom starts growing."
+          },
+          "saturationMinutes": {
+            "type": "number",
+            "minimum": 0.1,
+            "description": "Minutes of no meaningful activity before boredom reaches full strength."
+          },
+          "wakeLevel": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Boredom level that can wake a wander cycle."
+          },
+          "wakeCheckMinutes": {
+            "type": "number",
+            "minimum": 0.1,
+            "description": "Polling interval for checking whether boredom should wake the agent."
+          },
+          "wakeMinIntervalMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minimum minutes between boredom-triggered wander cycles."
+          },
+          "satiationMinutes": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minutes after a wander run during which boredom is suppressed."
+          }
+        }
+      },
+      "budgets": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "autonomousRunsPerDay": { "type": "integer", "minimum": 1 },
+          "autonomousTokensPerDay": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "thresholds": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "act": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Minimum curiosity value a candidate needs before a run starts."
+          },
+          "recentObservationWindowHours": { "type": "number", "minimum": 1 }
+        }
+      },
+      "generation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "candidateCount": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 20,
+            "description": "How many candidate curiosities the model authors per wake."
+          },
+          "timeoutSeconds": { "type": "number", "minimum": 30 },
+          "maxContextObservations": { "type": "integer", "minimum": 1 },
+          "maxTerritorySummaryItems": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "grounded": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "unresolvedUserAsks": { "type": "boolean" },
+          "failedToolAttempts": { "type": "boolean" }
+        }
+      },
+      "embeddings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "OpenAI embedding model used for semantic distance."
+          },
+          "apiKeyEnv": {
+            "type": "string",
+            "description": "Environment variable holding the embedding API key."
+          },
+          "baseUrl": { "type": "string" }
+        }
+      },
+      "frontier": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "minRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Target semantic distance at zero boredom."
+          },
+          "maxRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Target semantic distance at full boredom."
+          },
+          "fitWidth": {
+            "type": "number",
+            "minimum": 0.05,
+            "maximum": 1,
+            "description": "Tolerance band around the target radius."
+          }
+        }
+      },
+      "weights": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "learningProgress": { "type": "number", "minimum": 0, "maximum": 1 },
+          "predictionError": { "type": "number", "minimum": 0, "maximum": 1 },
+          "actionAffordance": { "type": "number", "minimum": 0, "maximum": 1 },
+          "frontierFit": { "type": "number", "minimum": 0, "maximum": 1 },
+          "novelty": { "type": "number", "minimum": 0, "maximum": 1 },
+          "selfSimilarityPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+          "recursionPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+          "noisePenalty": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
+      "actionPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "allowExternalActions": { "type": "boolean" },
+          "minimumSensingSteps": { "type": "integer", "minimum": 1 },
+          "maxAttemptsPerGoal": { "type": "integer", "minimum": 1 },
+          "retryCooldownMinutes": { "type": "number", "minimum": 0 },
+          "runTimeoutSeconds": { "type": "number", "minimum": 30 },
+          "activeHours": {
+            "type": "string",
+            "enum": ["always-on", "configured-window"]
+          },
+          "activeWindow": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+              },
+              "timeZone": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "playground": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dirName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Folder inside the agent workspace where wander runs may create artifacts."
+          }
+        }
+      },
+      "logging": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "retentionDays": { "type": "integer", "minimum": 1 },
+          "maxStorageBytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  },
+  "uiHints": {
+    "boredom": {
+      "label": "Boredom Drive",
+      "help": "Idle-time drive that wakes a wander cycle."
+    },
+    "budgets": {
+      "label": "Autonomy Budgets",
+      "help": "Rolling run and token caps for autonomous behavior."
+    },
+    "thresholds": {
+      "label": "Thresholds",
+      "help": "Decision thresholds for candidate selection."
+    },
+    "generation": {
+      "label": "Candidate Generation",
+      "help": "How the model authors candidate curiosities each wake."
+    },
+    "grounded": {
+      "label": "Grounded Candidates",
+      "help": "Observation-derived candidate streams that compete with generated ones."
+    },
+    "embeddings": {
+      "label": "Embeddings",
+      "help": "Embedding API used for semantic distance and the exploration map."
+    },
+    "frontier": {
+      "label": "Frontier Radius",
+      "help": "How far from recent context the target exploration radius sits as boredom grows."
+    },
+    "weights": {
+      "label": "Curiosity Weights",
+      "help": "Reward shape: learning progress, prediction error, affordance, distance, penalties."
+    },
+    "actionPolicy": {
+      "label": "Action Policy",
+      "help": "How far autonomous runs may go and when they may retry."
+    },
+    "playground": {
+      "label": "Playground",
+      "help": "Visible workspace folder where runs create artifacts."
+    },
+    "logging": {
+      "label": "Logging",
+      "help": "Retention for wander decisions, observations, and raw traces."
+    }
+  }
+}
