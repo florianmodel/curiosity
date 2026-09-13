@@ -1,12 +1,57 @@
+import dns from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import net from "node:net";
 
-const MAX_BYTES = 512 * 1024;
-const MAX_TEXT = 6000;
-const MAX_REDIRECTS = 3;
-const TIMEOUT_MS = 15_000;
+export const MAX_RESPONSE_BYTES = 512 * 1024;
+export const MAX_RESPONSE_TEXT = 6000;
+export const MAX_REDIRECTS = 3;
+export const FETCH_TIMEOUT_MS = 15_000;
+export const MAX_LINKS = 50;
 
-type FetchLike = (input: string, init?: { redirect?: string; signal?: AbortSignal; headers?: Record<string, string> }) => Promise<Response>;
+export type LookupAddress = { address: string; family: 4 | 6 };
+export type LookupLike = (hostname: string, options: { all: true; verbatim: true }) => Promise<LookupAddress[]>;
+export type FetchLike = (
+  input: string,
+  init?: {
+    redirect?: string;
+    signal?: AbortSignal;
+    headers?: Record<string, string>;
+    /** Used by the bundled native requester to pin the socket to the checked address. */
+    lookupAddress?: LookupAddress;
+  },
+) => Promise<Response>;
 
+function blockedIPv4(host: string): boolean {
+  const parts = host.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [a, b] = parts;
+  return a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127);
+}
+
+function blockedIPv6(host: string): boolean {
+  // Only globally routable unicast IPv6. Reject mapped/translated IPv4 and
+  // special-use ranges rather than allowing a private IPv4 destination in hex.
+  let normalized: string;
+  try {normalized=new URL(`http://[${host.replace(/^\[|\]$/g, "")}]`).hostname.slice(1,-1).toLowerCase();}
+  catch {return true;}
+  return !/^[23][0-9a-f]{3}:/.test(normalized) || normalized.startsWith("2001:db8:");
+}
+
+function blockedAddress(address: string): boolean {
+  const family = net.isIP(address);
+  return family === 4 ? blockedIPv4(address) : family === 6 ? blockedIPv6(address) : true;
+}
+
+function hostnameFor(url: URL): string {
+  return url.hostname.replace(/^\[|\]$/g, "");
+}
+
+/** Synchronous syntax check. DNS-rebinding protection is performed before each request. */
 export function isBlockedUrl(raw: string): string | undefined {
   let url: URL;
   try {
@@ -15,45 +60,101 @@ export function isBlockedUrl(raw: string): string | undefined {
     return "not a valid URL";
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return `protocol ${url.protocol} not allowed`;
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) return `host ${host} is local`;
+  if (url.username || url.password) return "credentials in URL are not allowed";
+  const host = hostnameFor(url).toLowerCase();
+  if (!host) return "missing host";
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+    return `host ${host} is local`;
+  }
   if (net.isIPv4(host) && blockedIPv4(host)) return `host ${host} is a private address`;
   if (net.isIPv6(host) && blockedIPv6(host)) return `host ${host} is a private address`;
-  if (host.startsWith("::ffff:")) {
-    const mapped = host.slice(7);
-    if (net.isIPv4(mapped) && blockedIPv4(mapped)) return `host ${host} is a private address`;
-  }
   return undefined;
 }
 
-function blockedIPv4(host: string): boolean {
-  const parts = host.split(".").map(Number);
-  const [a, b] = parts;
-  if (a === 0 || a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
+async function resolvePublicHost(raw: string, lookup: LookupLike): Promise<LookupAddress> {
+  const blocked = isBlockedUrl(raw);
+  if (blocked) throw new Error(`Blocked ${raw}: ${blocked}`);
+  const url = new URL(raw);
+  const hostname = hostnameFor(url);
+  const literalFamily = net.isIP(hostname);
+  if (literalFamily) return { address: hostname, family: literalFamily as 4 | 6 };
+  let addresses: LookupAddress[];
+  try {
+    addresses = await lookup(hostname, { all: true, verbatim: true });
+  } catch (error) {
+    throw new Error(`DNS lookup failed for ${hostname}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (addresses.length === 0) throw new Error(`DNS lookup returned no addresses for ${hostname}`);
+  const privateAddress = addresses.find((entry) => blockedAddress(entry.address));
+  if (privateAddress) throw new Error(`Blocked ${raw}: ${hostname} resolves to a private address (${privateAddress.address})`);
+  return addresses[0];
 }
 
-function blockedIPv6(host: string): boolean {
-  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
-  if (h === "::" || h === "::1") return true;
-  if (/^f[cd][0-9a-f]{2}:/.test(h)) return true;
-  if (/^fe[89ab][0-9a-f]:/.test(h)) return true;
-  return false;
+/**
+ * Native requester used in production. It passes the checked address to the
+ * socket lookup callback, so the DNS result checked above is the address used
+ * for this request. Tests and host integrations may inject another FetchLike.
+ */
+async function nativeFetch(input: string, init: Parameters<FetchLike>[1] = {}): Promise<Response> {
+  const url = new URL(input);
+  const transport = url.protocol === "https:" ? https : http;
+  const address = init.lookupAddress;
+  const hostname = hostnameFor(url);
+  return await new Promise<Response>((resolve, reject) => {
+    const requestOptions = {
+      protocol: url.protocol,
+      hostname,
+      port: url.port || undefined,
+      path: `${url.pathname}${url.search}`,
+      method: "GET",
+      headers: init.headers,
+      signal: init.signal,
+      ...(url.protocol === "https:" && !net.isIP(hostname) ? { servername: hostname } : {}),
+      autoSelectFamily: false,
+      ...(address ? { lookup: ((_hostname: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, address: string, family: number) => void) => callback(null, address.address, address.family)) as never } : {}),
+    } as unknown as http.RequestOptions;
+    const request = transport.request(requestOptions, (response) => {
+      const body = response.statusCode === 204 || response.statusCode === 304 ? null : new ReadableStream<Uint8Array>({
+        start(controller) {
+          response.on("data", (chunk: Buffer | string) => {
+            response.pause();
+            controller.enqueue(typeof chunk === "string" ? Buffer.from(chunk) : new Uint8Array(chunk));
+          });
+          response.on("end", () => controller.close());
+          response.on("error", (error) => controller.error(error));
+        },
+        pull() { response.resume(); },
+        cancel() { response.destroy(); },
+      });
+      resolve(new Response(body, {
+        status: response.statusCode ?? 0,
+        statusText: response.statusMessage ?? "",
+        headers: Object.fromEntries(Object.entries(response.headers).flatMap(([key, value]) => value == null ? [] : [[key, Array.isArray(value) ? value.join(", ") : String(value)]])),
+      }));
+    });
+    request.once("error", reject);
+    request.end();
+  });
 }
 
-export async function guardedFetch(raw: string, fetchImpl: FetchLike = fetch as FetchLike) {
+export async function guardedFetch(
+  raw: string,
+  fetchImpl: FetchLike = nativeFetch,
+  lookupImpl: LookupLike = dns.lookup as unknown as LookupLike,
+) {
   let current = raw;
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const blocked = isBlockedUrl(current);
-    if (blocked) throw new Error(`Blocked ${current}: ${blocked}`);
-    const response = await fetchImpl(current, { redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS), headers: { "user-agent": "curiosity-v2/0.2 (+autonomous agent; respects robots.txt and rate limits)" } });
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const address = await resolvePublicHost(current, lookupImpl);
+    const response = await fetchImpl(current, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { "user-agent": "curiosity-v2/0.2 (autonomous agent)" },
+      lookupAddress: address,
+    });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (!location) throw new Error(`Redirect from ${current} without location`);
+      await response.body?.cancel();
       current = new URL(location, current).toString();
       continue;
     }
@@ -62,15 +163,43 @@ export async function guardedFetch(raw: string, fetchImpl: FetchLike = fetch as 
   throw new Error(`Too many redirects fetching ${raw}`);
 }
 
-export function extractText(html: string): { title?: string; text: string } {
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const withoutScripts = html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<(br|p|div|section|article|h[1-6]|li|tr)[^>]*>/gi, "\n")
-    .replace(/<[^>]+>/g, " ");
-  const text = decodeEntities(withoutScripts).replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
-  return { title: titleMatch ? decodeEntities(titleMatch[1]).trim() : undefined, text };
+export async function readResponseText(response: Response, maxBytes = MAX_RESPONSE_BYTES): Promise<{ text: string; bytes: number; truncated: boolean }> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const buffer = await response.arrayBuffer();
+    const view = new Uint8Array(buffer);
+    const clipped = view.slice(0, maxBytes);
+    return { text: new TextDecoder().decode(clipped), bytes: view.byteLength, truncated: view.byteLength > maxBytes };
+  }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  let truncated = false;
+  try {
+    while (bytes < maxBytes) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = next.value;
+      bytes += chunk.byteLength;
+      if (bytes < maxBytes) {
+        chunks.push(chunk);
+      } else {
+        const accepted = chunk.slice(0, Math.max(0, maxBytes - (bytes - chunk.byteLength)));
+        chunks.push(accepted);
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
+    }
+    const merged = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { text: new TextDecoder().decode(merged), bytes, truncated };
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function decodeEntities(value: string): string {
@@ -80,25 +209,74 @@ function decodeEntities(value: string): string {
     .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)));
 }
 
-export async function readPage(raw: string, fetchImpl: FetchLike = fetch as FetchLike) {
-  const { response, finalUrl } = await guardedFetch(raw, fetchImpl);
+function contentHtml(html: string): string {
+  return html
+    .replace(/<(script|style|nav|header|footer|aside|form)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<(div|span)\b[^>]*class\s*=\s*["'][^"']*(?:mw-editsection|reference|sidebar|navigation)[^"']*["'][^>]*>[\s\S]*?<\/\1>/gi, " ");
+}
+
+function extractLinks(html: string, baseUrl?: string): string[] {
+  if (!baseUrl) return [];
+  const links: string[] = [];
+  const seen = new Set<string>();
+  const pattern = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  for (const match of html.matchAll(pattern)) {
+    const raw = decodeEntities(match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (!raw || raw.startsWith("#")) continue;
+    try {
+      const resolved = new URL(raw, baseUrl);
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+      if (resolved.username || resolved.password) continue;
+      resolved.hash = "";
+      const value = resolved.toString();
+      if (!seen.has(value)) {
+        seen.add(value);
+        links.push(value);
+        if (links.length >= MAX_LINKS) break;
+      }
+    } catch {
+      // Ignore malformed hrefs while retaining the usable links.
+    }
+  }
+  return links;
+}
+
+export function extractText(html: string, baseUrl?: string): { title?: string; text: string; links: string[] } {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const main = contentHtml(html);
+  const withoutScripts = main
+    .replace(/<(br|p|div|section|article|h[1-6]|li|tr)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  const text = decodeEntities(withoutScripts).replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+  return { title: titleMatch ? decodeEntities(titleMatch[1]).trim() : undefined, text, links: extractLinks(main, baseUrl) };
+}
+
+export async function readPage(
+  raw: string,
+  fetchImpl: FetchLike = nativeFetch,
+  lookupImpl: LookupLike = dns.lookup as unknown as LookupLike,
+) {
+  const { response, finalUrl } = await guardedFetch(raw, fetchImpl, lookupImpl);
   const contentType = response.headers.get("content-type") ?? "";
   if (!/^(text\/|application\/(json|xml|.+xml|xhtml))/i.test(contentType)) {
     throw new Error(`Unsupported content-type "${contentType}" at ${finalUrl}`);
   }
-  const buffer = await response.arrayBuffer();
-  const body = new TextDecoder().decode(buffer.slice(0, MAX_BYTES));
-  const isHtml = /text\/html|.xhtml/i.test(contentType);
-  const { title, text } = isHtml ? extractText(body) : { title: undefined, text: body };
-  const clipped = text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n[... truncated ${text.length - MAX_TEXT} chars]` : text;
-  if (!response.ok && text.length === 0) throw new Error(`HTTP ${response.status} with empty body at ${finalUrl}`);
+  const body = await readResponseText(response, MAX_RESPONSE_BYTES);
+  if (!response.ok) throw new Error(`HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""} at ${finalUrl}`);
+  const isHtml = /text\/html|\.xhtml/i.test(contentType);
+  const parsed = isHtml ? extractText(body.text, finalUrl) : { title: undefined, text: body.text, links: [] };
+  const clipped = parsed.text.length > MAX_RESPONSE_TEXT
+    ? `${parsed.text.slice(0, MAX_RESPONSE_TEXT)}\n[... truncated ${parsed.text.length - MAX_RESPONSE_TEXT} chars]`
+    : parsed.text;
   return {
     url: raw,
     finalUrl,
     status: response.status,
     contentType,
-    title,
-    totalBytes: buffer.byteLength,
+    title: parsed.title,
+    links: parsed.links,
+    totalBytes: body.bytes,
+    truncated: body.truncated || parsed.text.length > MAX_RESPONSE_TEXT,
     text: clipped || `(empty page at ${finalUrl})`,
   };
 }

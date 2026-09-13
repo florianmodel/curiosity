@@ -60,3 +60,8 @@ Run count, tool count, keyword novelty, and task completion are diagnostics only
 V2 needs durable records for self revisions, interests, projects, relationships, artifacts, experiences, reflections, resource requests, and self-modifications. Short-lived actions belong to one of these longer arcs. Selection is model-authored from recalled evidence; heuristics may enforce budgets and surface neglected options but must not manufacture a numeric fiction of intrinsic interest.
 
 The existing v1 plugin remains intact while v2 is developed as a separately installable package in `v2/`.
+
+
+## Operator clarification — 2026-09-11
+
+The operator reaffirmed independent interests, personality, creations, and projects, including public publishing and initiating conversations. Mastodon is accepted as the first configured public surface. Begin with a few brief opportunities per day. Observe what emerges and adjust; there is no prescribed artifact quota, behavioral score, or success criterion. Quiet sessions and sustained returns are legitimate. The earlier "success over months" examples are observation prompts, not a required checklist.

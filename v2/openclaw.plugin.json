@@ -2,19 +2,92 @@
   "id": "curiosity-v2",
   "name": "Curiosity v2",
   "description": "Persistent interest, personality, project, relationship, and reflection development.",
-  "contracts": { "tools": ["curiosity_v2"] },
+  "contracts": {
+    "tools": [
+      "curiosity_v2",
+      "curiosity_web_fetch",
+      "curiosity_search",
+      "curiosity_note_write",
+      "curiosity_project",
+      "curiosity_social"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "enabled": { "type": "boolean" },
-      "stage": { "type": "integer", "const": 0 },
-      "wakeIntervalMinutes": { "type": "number", "minimum": 1 },
-      "maxAutonomousRunsPerDay": { "type": "integer", "minimum": 1 },
-      "maxAutonomousTokensPerDay": { "type": "integer", "minimum": 1 },
-      "allowPublicParticipation": { "type": "boolean" },
-      "allowDirectConversations": { "type": "boolean" },
-      "allowSelfModification": { "type": "boolean" }
+      "enabled": {
+        "type": "boolean"
+      },
+      "stage": {
+        "type": "integer",
+        "const": 0
+      },
+      "wakeIntervalMinutes": {
+        "type": "number",
+        "minimum": 1
+      },
+      "maxAutonomousRunsPerDay": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "maxAutonomousTokensPerDay": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "allowPublicParticipation": {
+        "type": "boolean"
+      },
+      "allowDirectConversations": {
+        "type": "boolean"
+      },
+      "allowSelfModification": {
+        "type": "boolean"
+      },
+      "agentId": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9_-]+$"
+      },
+      "sessionMinutes": {
+        "type": "number",
+        "minimum": 1
+      },
+      "maxSocialActionsPerDay": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "maxDirectConversationsPerDay": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "allowWebFetch": {
+        "type": "boolean"
+      },
+      "allowNotes": {
+        "type": "boolean"
+      },
+      "allowSearch": {
+        "type": "boolean"
+      },
+      "allowProjects": {
+        "type": "boolean"
+      },
+      "mastodon": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseUrl"
+        ],
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "accessTokenEnv": {
+            "type": "string",
+            "pattern": "^[A-Z_][A-Z0-9_]*$"
+          }
+        }
+      }
     }
   }
 }

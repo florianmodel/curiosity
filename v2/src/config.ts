@@ -1,34 +1,48 @@
 import type { V2Config } from "./types.js";
 
 export const DEFAULT_CONFIG: V2Config = {
-  enabled: true,
-  stage: 0,
-  wakeIntervalMinutes: 30,
-  maxAutonomousRunsPerDay: 12,
-  maxAutonomousTokensPerDay: 50_000,
-  allowPublicParticipation: true,
-  allowDirectConversations: true,
-  allowSelfModification: true,
-  allowWebFetch: true,
-  allowNotes: true,
+  enabled: true, agentId: "main", stage: 0,
+  wakeIntervalMinutes: 480, sessionMinutes: 8,
+  maxAutonomousRunsPerDay: 3, maxAutonomousTokensPerDay: 50_000,
+  maxSocialActionsPerDay: 3, maxDirectConversationsPerDay: 1,
+  allowPublicParticipation: true, allowDirectConversations: true,
+  allowSelfModification: true, allowWebFetch: true, allowNotes: true,
+  allowSearch: true, allowProjects: true,
 };
 
 export function resolveConfig(value: unknown): V2Config {
   const input = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  const number = (key: keyof V2Config, fallback: number) =>
-    typeof input[key] === "number" && Number.isFinite(input[key]) ? Number(input[key]) : fallback;
-  const boolean = (key: keyof V2Config, fallback: boolean) =>
-    typeof input[key] === "boolean" ? Boolean(input[key]) : fallback;
+  const number = (key: keyof V2Config, fallback: number, minimum = 1) =>
+    Math.max(minimum, typeof input[key] === "number" && Number.isFinite(input[key]) ? Number(input[key]) : fallback);
+  const boolean = (key: keyof V2Config, fallback: boolean) => typeof input[key] === "boolean" ? input[key] as boolean : fallback;
+  const configured = input.mastodon as Record<string, unknown> | undefined;
+  let mastodon: V2Config["mastodon"];
+  if (configured) {
+    const url = new URL(String(configured.baseUrl ?? ""));
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+      throw new Error("mastodon.baseUrl must be an HTTPS instance origin without credentials or a path");
+    }
+    const accessTokenEnv = String(configured.accessTokenEnv ?? "CURIOSITY_MASTODON_TOKEN");
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(accessTokenEnv)) throw new Error("Invalid Mastodon token environment variable name");
+    mastodon = { baseUrl: url.origin, accessTokenEnv };
+  }
   return {
     enabled: boolean("enabled", DEFAULT_CONFIG.enabled),
+    agentId: typeof input.agentId === "string" && /^[a-zA-Z0-9_-]+$/.test(input.agentId) ? input.agentId : "main",
     stage: 0,
-    wakeIntervalMinutes: Math.max(1, number("wakeIntervalMinutes", DEFAULT_CONFIG.wakeIntervalMinutes)),
-    maxAutonomousRunsPerDay: Math.max(1, Math.trunc(number("maxAutonomousRunsPerDay", DEFAULT_CONFIG.maxAutonomousRunsPerDay))),
-    maxAutonomousTokensPerDay: Math.max(1, Math.trunc(number("maxAutonomousTokensPerDay", DEFAULT_CONFIG.maxAutonomousTokensPerDay))),
+    wakeIntervalMinutes: number("wakeIntervalMinutes", DEFAULT_CONFIG.wakeIntervalMinutes),
+    sessionMinutes: number("sessionMinutes", DEFAULT_CONFIG.sessionMinutes),
+    maxAutonomousRunsPerDay: Math.trunc(number("maxAutonomousRunsPerDay", DEFAULT_CONFIG.maxAutonomousRunsPerDay)),
+    maxAutonomousTokensPerDay: Math.trunc(number("maxAutonomousTokensPerDay", DEFAULT_CONFIG.maxAutonomousTokensPerDay)),
+    maxSocialActionsPerDay: Math.trunc(number("maxSocialActionsPerDay", DEFAULT_CONFIG.maxSocialActionsPerDay, 0)),
+    maxDirectConversationsPerDay: Math.trunc(number("maxDirectConversationsPerDay", DEFAULT_CONFIG.maxDirectConversationsPerDay, 0)),
     allowPublicParticipation: boolean("allowPublicParticipation", DEFAULT_CONFIG.allowPublicParticipation),
     allowDirectConversations: boolean("allowDirectConversations", DEFAULT_CONFIG.allowDirectConversations),
     allowSelfModification: boolean("allowSelfModification", DEFAULT_CONFIG.allowSelfModification),
     allowWebFetch: boolean("allowWebFetch", DEFAULT_CONFIG.allowWebFetch),
     allowNotes: boolean("allowNotes", DEFAULT_CONFIG.allowNotes),
+    allowSearch: boolean("allowSearch", DEFAULT_CONFIG.allowSearch),
+    allowProjects: boolean("allowProjects", DEFAULT_CONFIG.allowProjects),
+    ...(mastodon ? { mastodon } : {}),
   };
 }

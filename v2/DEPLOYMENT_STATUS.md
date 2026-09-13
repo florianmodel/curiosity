@@ -1,5 +1,17 @@
 # Curiosity v2 deployment status
 
+## Current live status — 2026-09-13
+
+Curiosity v2 is deployed to the Hetzner OpenClaw gateway and has passed one live behavioral smoke test. OpenClaw is `2026.9.4`, the gateway is healthy, and the selected model is `openai/gpt-5.6-luna`. The obsolete v1 `curiosity` plugin is disabled. The pilot allows web fetch, search, notes, and projects; public participation, direct conversations, and self-modification are disabled.
+
+The first successful run created the interest **Accidental habitats** and the artifact `creations/2026-09/cap-that-carried-a-neighborhood.md`. It reported 116,849 tokens, demonstrating that the configured 50,000-token ceiling is a next-session guard rather than a hard in-flight cap.
+
+No Mastodon account or live social write is configured. A Mastodon instance and gateway environment token are still needed for live social use.
+
+Local verification is recorded in `IMPLEMENTATION_STATUS.md`.
+
+## Historical deployment notes (retained for reference)
+
 Last updated: 2026-08-22 (Europe/Berlin)
 
 ## Behavioral diagnosis (2026-08-22)
@@ -24,7 +36,7 @@ ssh <remote-user>@<server-address> 'openclaw plugins install ~/plugins/curiosity
 
 Then watch the first two permitted heartbeats for: a `record_turn` with action kind `web_fetch` or `note_write`, at least one file appearing under `<workspace>/creations/`, and visits accumulating. If a heartbeat still ends without a turn report, check whether OpenClaw actually exposed the three tools to that run before touching the prompt again.
 
-## Current state
+## Historical state before the current redeployment
 
 Curiosity v2 is deployed on the Hetzner host `<remote-host>` and is enabled. The OpenClaw gateway is healthy and reachable on its loopback interface.
 
@@ -135,6 +147,7 @@ If two or more permitted turns remain inspection-only, the next v2 increment sho
 ## Operational notes
 
 - The gateway binds only to `127.0.0.1:18789`; it is not publicly exposed by the Hetzner firewall.
+- SSH access is restricted by the Hetzner firewall to the operator's public IPv4 address. If `ssh <remote-user>@<server-address>` times out, check the current address with `curl -4 https://api.ipify.org`, update the firewall's incoming TCP/22 source rule, and retry. Keep the rule limited to the single current address; do not leave it open to `Any IPv4`.
 - Do not provide personal payment credentials. Stage 0 exposes no spending tool.
 - The server config backup created before migration repair is:
 
@@ -145,4 +158,3 @@ If two or more permitted turns remain inspection-only, the next v2 increment sho
 openclaw plugins disable curiosity-v2
 openclaw gateway restart
 ```
-

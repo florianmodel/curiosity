@@ -4,6 +4,11 @@ export type ProjectState = "imagined" | "active" | "paused" | "completed" | "aba
 
 export type V2Config = {
   enabled: boolean;
+  agentId: string;
+  sessionMinutes: number;
+  maxSocialActionsPerDay: number;
+  maxDirectConversationsPerDay: number;
+  mastodon?: { baseUrl: string; accessTokenEnv: string };
   stage: 0;
   wakeIntervalMinutes: number;
   maxAutonomousRunsPerDay: number;
@@ -13,6 +18,8 @@ export type V2Config = {
   allowSelfModification: boolean;
   allowWebFetch: boolean;
   allowNotes: boolean;
+  allowSearch: boolean;
+  allowProjects: boolean;
 };
 
 export type SelfRevision = {
@@ -120,6 +127,8 @@ export type Turn = {
   surprise?: string;
   nextHook?: { note: string; dueAt?: number; interestId?: string; projectId?: string };
   blockedReason?: string;
+  quietReason?: string;
+  quiet?: boolean;
 };
 
 export type Visit = {
@@ -132,10 +141,22 @@ export type Visit = {
 
 export type DueHook = {
   refId: string;
-  kind: "interest" | "project";
+  kind: "interest" | "project" | "followup";
   name: string;
   dueAt: number;
   hint?: string;
+};
+
+export type TimelineEvent = {
+  eventId: string;
+  runId?: string;
+  createdAt: number;
+  kind: string;
+  toolName?: string;
+  target?: string;
+  outcome?: string;
+  data?: unknown;
+  success?: boolean;
 };
 
 export type Snapshot = {
@@ -150,4 +171,12 @@ export type Snapshot = {
   turns: Turn[];
   visits: Visit[];
   dueHooks: DueHook[];
+  events?: TimelineEvent[];
+  followUps?: FollowUp[];
+};
+
+export type FollowUp = {
+  followUpId: string; createdAt: number; updatedAt: number; note: string; dueAt: number;
+  state: "pending" | "snoozed" | "completed" | "abandoned";
+  interestId?: string; projectId?: string; target?: string; evidence?: string[];
 };

@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import { writeManaged } from "./project.js";
 import path from "node:path";
 const MAX_CONTENT = 100_000;
 const ALLOWED_EXTENSIONS = new Set(["md", "txt", "json", "html", "css", "js", "ts", "svg", "csv"]);
@@ -25,19 +25,7 @@ export class NoteWriter {
         const target = path.join(dir, `${slug}.${extension}`);
         if (!target.startsWith(path.join(this.rootDir, "creations") + path.sep))
             throw new Error("Path escaped the creations directory");
-        await fs.mkdir(dir, { recursive: true });
-        let exists = false;
-        try {
-            await fs.access(target);
-            exists = true;
-        }
-        catch {
-            exists = false;
-        }
-        if (exists && !input.overwrite)
-            throw new Error(`${target} already exists; choose a new slug or pass overwrite:true deliberately`);
         const header = input.title && extension === "md" ? `# ${String(input.title).replace(/\n/g, " ").slice(0, 120)}\n\n` : "";
-        await fs.writeFile(target, header + content, "utf8");
-        return { path: target, bytes: Buffer.byteLength(header + content) };
+        return writeManaged(this.rootDir, `creations/${month}/${slug}.${extension}`, header + content, input.overwrite);
     }
 }
