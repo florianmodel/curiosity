@@ -8,7 +8,7 @@ The agent should develop independent interests, personality, creations, and proj
 
 The observed failure belongs to older versions: the agent repeatedly explored its own logs and surrounding infrastructure instead of exploring the wider world or making things. The operator has not tested the latest v2. This review therefore distinguishes code defects and design gaps from hypotheses about v2's actual behavior.
 
-Primary target: `curiosity/v2`, the latest successor by local Git history (latest commits dated 2026-08-22). Older `openclaw-curiosity`, `wander`, and archive notes were examined for lessons. The active remote installation, model, tool permissions, and recent runtime traces have not been verified. Deployment notes contain historical and partly contradictory statements; they are not proof of current deployment state.
+Primary target: this repository root, the latest successor by local Git history. Older `openclaw-curiosity`, `wander`, and archive notes were examined for lessons. The active remote installation, model, tool permissions, and recent runtime traces have not been verified. Deployment notes contain historical and partly contradictory statements; they are not proof of current deployment state.
 
 Skills used: skill-router, clarify-first, and evaluation. Two Luna subagents independently reviewed v2 and the earlier implementations; findings were checked against local source. All 28 existing v2 unit tests passed. No paid model simulation was run.
 
@@ -52,7 +52,7 @@ Implication: interests can vanish from recall without being deliberately abandon
 
 Every developmental turn must take a concrete step and write a report; cold start requires exactly three interests and first inspects the workspace. Seeding stops being offered once any turn exists, even if no interest was formed. Later turns say to choose from remembered context, which can reproduce the same local focus. “Repetition is drift” also gives insufficient distinction between empty repetition and deliberate practice or sustained work.
 
-Evidence: [turn contract](src/prompt.ts:33), [cold start](src/prompt.ts:54), [historical attractor](../archive/notes/PLUGIN_GOALS_AND_LEARNINGS.md:174).
+Evidence: [turn contract](src/prompt.ts:33) and [cold start](src/prompt.ts:54). Historical notes are retained locally outside this repository.
 
 Hypothesis to observe: a model may choose the cheapest defensible action and then close the turn, or continually seek something new instead of developing an existing interest. This is not an observed conclusion about latest v2.
 

@@ -1,6 +1,6 @@
 # Local implementation status — 2026-09-12
 
-Implemented in `curiosity/v2`, using Luna subagents for memory, exploration, Mastodon, tests, and review. It has since been deployed to the Hetzner OpenClaw gateway and passed one live behavioral smoke test. It remains an early experiment, not a behaviorally validated product.
+Implemented in this repository using Luna subagents for memory, exploration, Mastodon, tests, and review. It has since been deployed to the Hetzner OpenClaw gateway and passed one live behavioral smoke test. It remains an early experiment, not a behaviorally validated product.
 
 ## Available behavior
 

@@ -38,7 +38,7 @@ npm ci
 npm run typecheck
 npm test
 npm run build
-openclaw plugins install /absolute/path/to/curiosity/v2 --force --accept-capabilities
+openclaw plugins install /absolute/path/to/curiosity --force --accept-capabilities
 openclaw plugins enable curiosity-v2
 ```
 

@@ -59,7 +59,7 @@ Run count, tool count, keyword novelty, and task completion are diagnostics only
 
 V2 needs durable records for self revisions, interests, projects, relationships, artifacts, experiences, reflections, resource requests, and self-modifications. Short-lived actions belong to one of these longer arcs. Selection is model-authored from recalled evidence; heuristics may enforce budgets and surface neglected options but must not manufacture a numeric fiction of intrinsic interest.
 
-The existing v1 plugin remains intact while v2 is developed as a separately installable package in `v2/`.
+The existing v1 plugin remains intact while v2 is developed as the separately installable package at this repository root.
 
 
 ## Operator clarification — 2026-09-11
