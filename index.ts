@@ -11,6 +11,10 @@ export const id="curiosity-v2";
 export const name="Curiosity v2";
 export const description="Persistent self-directed exploration, creation, and participation.";
 const object=(value:unknown):Record<string,unknown>=>value&&typeof value==="object"?value as Record<string,unknown>:{};
+const HOUSEKEEPING_TOOLS=new Set(["heartbeat","status","session_status","gateway_status","health_check","openclaw_directheartbeat_respond","heartbeat_respond"]);
+const isHousekeeping=(toolName:string,params:Record<string,unknown>)=>
+  HOUSEKEEPING_TOOLS.has(toolName)||
+  ((toolName==="curiosity_v2"||toolName==="openclawcuriosity_v2")&&["snapshot","status","session_status","timeline","list_events"].includes(String(params.action??"snapshot")));
 
 export function register(api:OpenClawPluginApi) {
   const config=resolveConfig(api.pluginConfig);
@@ -128,7 +132,8 @@ export function register(api:OpenClawPluginApi) {
     if(run&&!TOOL_NAMES.includes(event.toolName)) {
       const target=String(event.params.url ?? event.params.path ?? event.params.file_path ?? event.params.target ?? event.toolName).slice(0,1000);
       const returned=object(event.result);
-      await run.store.recordEvent({runId,kind:"action",toolName:event.toolName,target,success:!event.error&&returned.isError!==true,outcome:event.error||returned.isError===true?"Native tool failed":"Native tool completed",data:{toolCallId:event.toolCallId ?? ctx.toolCallId}});
+      const housekeeping=isHousekeeping(event.toolName,event.params);
+      await run.store.recordEvent({runId,kind:housekeeping?"housekeeping":"action",toolName:event.toolName,target,success:!event.error&&returned.isError!==true,outcome:event.error||returned.isError===true?"Native tool failed":housekeeping?"Housekeeping completed":"Native tool completed",data:{toolCallId:event.toolCallId ?? ctx.toolCallId}});
     }
     const callId=event.toolCallId ?? ctx.toolCallId;if(callId)calls.delete(callId);
   });

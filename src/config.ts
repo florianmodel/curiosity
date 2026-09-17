@@ -2,8 +2,8 @@ import type { V2Config } from "./types.js";
 
 export const DEFAULT_CONFIG: V2Config = {
   enabled: true, agentId: "main", stage: 0,
-  wakeIntervalMinutes: 480, sessionMinutes: 8,
-  maxAutonomousRunsPerDay: 3, maxAutonomousTokensPerDay: 50_000,
+  wakeIntervalMinutes: 480, sessionMinutes: 4,
+  maxAutonomousRunsPerDay: 3, maxAutonomousTokensPerDay: 20_000,
   maxSocialActionsPerDay: 3, maxDirectConversationsPerDay: 1,
   allowPublicParticipation: true, allowDirectConversations: true,
   allowSelfModification: true, allowWebFetch: true, allowNotes: true,

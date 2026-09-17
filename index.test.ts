@@ -90,6 +90,22 @@ describe("developmental runtime",()=> {
     expect(event?.success).toBe(true);expect(JSON.stringify(event)).not.toContain("private-secret");
     await h.hooks.agent_end!({success:true},h.ctx);await h.store.close();
   });
+  it("does not count heartbeat/status/snapshot wrapper housekeeping as developmental actions",async()=> {
+    const h=await setup();await h.hooks.before_prompt_build!({prompt:"",messages:[]},h.ctx);
+    await h.call("curiosity_v2",{action:"snapshot"});
+    await h.hooks.after_tool_call!({toolName:"session_status",params:{},result:{status:"ok"},runId:h.ctx.runId},{...h.ctx,toolName:"session_status"});
+    await h.hooks.after_tool_call!({toolName:"heartbeat",params:{},result:{ok:true},runId:h.ctx.runId},{...h.ctx,toolName:"heartbeat"});
+    await h.hooks.after_tool_call!({toolName:"openclawcuriosity_v2",params:{action:"snapshot"},result:{snapshot:{}},runId:h.ctx.runId},{...h.ctx,toolName:"openclawcuriosity_v2"});
+    await h.hooks.after_tool_call!({toolName:"openclawcuriosity_v2",params:{action:"status"},result:{status:"ok"},runId:h.ctx.runId},{...h.ctx,toolName:"openclawcuriosity_v2"});
+    await h.hooks.after_tool_call!({toolName:"openclaw_directheartbeat_respond",params:{},result:{ok:true},runId:h.ctx.runId},{...h.ctx,toolName:"openclaw_directheartbeat_respond"});
+    await h.hooks.after_tool_call!({toolName:"heartbeat_respond",params:{},result:{ok:true},runId:h.ctx.runId},{...h.ctx,toolName:"heartbeat_respond"});
+    await h.hooks.agent_end!({success:true},h.ctx);
+    const events=await h.store.listEvents({runId:h.ctx.runId});
+    expect(events.filter(event=>event.kind==="housekeeping")).toHaveLength(6);
+    expect(events.find(event=>event.kind==="session_ended")?.data).toMatchObject({observedActions:0});
+    expect(events.find(event=>event.kind==="session_ended")?.outcome).toContain("no observed actions");
+    await h.store.close();
+  });
 });
 
 it("accounts for usage emitted after agent_end by the real hook order",async()=>{

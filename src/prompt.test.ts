@@ -6,9 +6,15 @@ const empty:Snapshot={interests:[],projects:[],recentExperiences:[],relationship
 describe("development prompt",()=>{
   it("keeps the experiment open-ended with honest quiet sessions and standing boundaries",()=>{
     const prompt=renderDevelopmentPrompt(empty,DEFAULT_CONFIG);
-    expect(prompt).toContain("no artifact quota");expect(prompt).toContain("record_turn is optional");
+    expect(prompt).toContain("no artifact quota");expect(prompt).toContain("attempt at least one genuine outward or constructive action");
     expect(prompt).toContain("quietReason");expect(prompt).toContain("Economic stage 0");expect(prompt).toContain("credential isolation");
     expect(prompt).not.toContain("propose exactly three");expect(prompt).not.toMatch(/build a (website|game)/i);
+  });
+  it("requires a constructive attempt while allowing honest blockage",()=>{
+    const prompt=renderDevelopmentPrompt(empty,DEFAULT_CONFIG);
+    expect(prompt).toContain("Do not end with only snapshot/status inspection");
+    expect(prompt).toContain("only when every available route is unavailable, unsafe, or genuinely unproductive");
+    expect(prompt).toContain("HEARTBEAT_OK is appropriate only after an honest action");
   });
   it("does not advertise disabled plugin capabilities or unconfigured Mastodon",()=>{
     const prompt=renderDevelopmentPrompt(empty,{...DEFAULT_CONFIG,allowWebFetch:false,allowNotes:false,allowSearch:false,allowProjects:false});
@@ -20,7 +26,7 @@ describe("development prompt",()=>{
   });
   it("recalls due hooks and hints without mandating that they be pursued",()=>{
     const prompt=renderDevelopmentPrompt({...empty,dueHooks:[{refId:"old",kind:"interest",name:"Tide pools",dueAt:1,hint:"why do they drift?"}]},DEFAULT_CONFIG);
-    expect(prompt).toContain("Tide pools");expect(prompt).toContain("why do they drift?");expect(prompt).toContain("leave a direction alone");
+    expect(prompt).toContain("Tide pools");expect(prompt).toContain("why do they drift?");expect(prompt).toContain("genuinely unproductive");
   });
   it("keeps ordinary user-task awareness compact",()=>{
     expect(renderAwarenessPrompt(empty)).toBeUndefined();
