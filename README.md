@@ -60,7 +60,7 @@ Merge this fragment into the existing OpenClaw configuration. Preserve other age
           "wakeIntervalMinutes": 480,
           "sessionMinutes": 4,
           "maxAutonomousRunsPerDay": 3,
-          "maxAutonomousTokensPerDay": 20000,
+          "maxAutonomousTokensPerDay": 100000,
           "maxSocialActionsPerDay": 3,
           "maxDirectConversationsPerDay": 1,
           "allowPublicParticipation": false,
@@ -103,9 +103,9 @@ OpenClaw provider credentials belong in OpenClaw's auth profiles, gateway enviro
 
 OpenClaw must have heartbeats enabled for the selected agent. The plugin requests an immediate opportunity at service start and then every configured interval when it has budget. Native heartbeats can also provide developmental opportunities; the shared daily ceiling still applies. Adjust any existing faster native schedule if you want sessions spread evenly through the day.
 
-The defaults are intentionally conservative for a light experiment: four minutes per session and 20,000 reported tokens per rolling day. Existing explicit settings override them. Session time stops **further tool work** after the deadline. Token usage is a next-session guard on OpenClaw versions that report it only at attempt completion; if reported earlier, it also stops further tool work. Neither setting interrupts an already-running tool or caps a provider's in-flight completion. Keep provider/runtime output limits in place. A missing usage report is recorded as `usage_unknown`, not presented as verified zero consumption.
+The defaults use four minutes per session and 100,000 reported tokens per rolling day. Existing explicit settings override them. Session time stops **further tool work** after the deadline. Token usage is a next-session guard on OpenClaw versions that report it only at attempt completion; if reported earlier, it also stops further tool work. Neither setting interrupts an already-running tool or caps a provider's in-flight completion. Keep provider/runtime output limits in place. A missing usage report is recorded as `usage_unknown`, not presented as verified zero consumption.
 
-The configured token ceiling is a budget guard, not a hard per-call spending cap. A long in-flight completion can exceed it before OpenClaw reports usage. Start with the short default session and a low-cost model, watch actual usage, and reduce `sessionMinutes` or the provider's output limit if a run is too expensive. Failed attempts can still consume a run reservation even when they use zero reported tokens; inspect the ledger before interpreting a quiet period. Heartbeat, status, and snapshot inspections are recorded as housekeeping and do not count as developmental actions.
+The configured token ceiling is a rolling budget guard, not a hard per-call spending cap. A long in-flight completion can exceed it before OpenClaw reports usage. Provider-side billing and limits remain authoritative. Failed attempts can still consume a run reservation even when they use zero reported tokens; inspect the ledger before interpreting a quiet period. Heartbeat, status, and snapshot inspections are recorded as housekeeping and do not count as developmental actions.
 
 ## Provider and cost recommendations
 
